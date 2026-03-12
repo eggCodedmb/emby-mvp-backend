@@ -2,9 +2,11 @@ package com.emby.mvp.controller;
 
 import com.emby.mvp.common.ApiResponse;
 import com.emby.mvp.common.BizException;
+import com.emby.mvp.dto.ScanRequest;
 import com.emby.mvp.service.LibraryService;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -18,9 +20,11 @@ public class LibraryController {
     }
 
     @PostMapping("/scan")
-    public ApiResponse<Object> scan(Authentication authentication) {
+    public ApiResponse<Object> scan(Authentication authentication, @RequestBody(required = false) ScanRequest req) {
         boolean isAdmin = authentication.getAuthorities().stream().anyMatch(a -> "ROLE_ADMIN".equals(a.getAuthority()));
         if (!isAdmin) throw new BizException(4030, "forbidden");
-        return ApiResponse.ok(libraryService.scan());
+        String folder = req == null ? null : req.getFolderPath();
+        Integer depth = req == null ? null : req.getDepth();
+        return ApiResponse.ok(libraryService.scan(folder, depth));
     }
 }

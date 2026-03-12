@@ -1,6 +1,7 @@
 package com.emby.mvp.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.emby.mvp.common.BizException;
 import com.emby.mvp.entity.LibraryScanJob;
 import com.emby.mvp.entity.MediaItem;
 import com.emby.mvp.mapper.LibraryScanJobMapper;
@@ -33,7 +34,7 @@ public class LibraryServiceImpl implements LibraryService {
     }
 
     @Override
-    public LibraryScanJob scan() {
+    public LibraryScanJob scan(String folderPath, Integer depth) {
         LibraryScanJob job = new LibraryScanJob();
         job.setStatus("RUNNING");
         job.setStartedAt(LocalDateTime.now());
@@ -43,20 +44,32 @@ public class LibraryServiceImpl implements LibraryService {
         AtomicInteger ok = new AtomicInteger();
         AtomicInteger fail = new AtomicInteger();
 
-        Path root = Paths.get(mediaRoot).normalize().toAbsolutePath();
+        Path mediaBase = Paths.get(mediaRoot).normalize().toAbsolutePath();
+        Path root;
+        if (folderPath == null || folderPath.isBlank()) {
+            root = mediaBase;
+        } else {
+            Path input = Paths.get(folderPath);
+            root = (input.isAbsolute() ? input : mediaBase.resolve(input)).normalize().toAbsolutePath();
+        }
+        if (!root.startsWith(mediaBase)) {
+            throw new BizException(4004, "scan folder must be inside media root");
+        }
+        int walkDepth = (depth == null || depth <= 0) ? Integer.MAX_VALUE : Math.min(depth, 50);
+
         Path posterRoot = Paths.get(posterDir).normalize().toAbsolutePath();
         try {
             Files.createDirectories(posterRoot);
         } catch (Exception ignored) {
         }
 
-        try (Stream<Path> paths = Files.walk(root)) {
+        try (Stream<Path> paths = Files.walk(root, walkDepth)) {
             paths.filter(Files::isRegularFile)
                     .filter(p -> p.toString().toLowerCase().endsWith(".mp4"))
                     .forEach(p -> {
                         total.incrementAndGet();
                         try {
-                            String relative = root.relativize(p.toAbsolutePath().normalize()).toString().replace('\\', '/');
+                            String relative = mediaBase.relativize(p.toAbsolutePath().normalize()).toString().replace('\\', '/');
                             var existing = mediaItemMapper.selectOne(new LambdaQueryWrapper<MediaItem>()
                                     .eq(MediaItem::getFilePath, relative).last("limit 1"));
                             MediaItem item = existing == null ? new MediaItem() : existing;
