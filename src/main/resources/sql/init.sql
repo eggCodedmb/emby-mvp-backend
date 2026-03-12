@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS media_items (
     width INT,
     height INT,
     codec VARCHAR(64),
+    bitrate_kbps INT,
     poster_url VARCHAR(255),
     file_hash VARCHAR(64),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -23,6 +24,7 @@ CREATE TABLE IF NOT EXISTS media_items (
 
 ALTER TABLE media_items ADD COLUMN IF NOT EXISTS poster_url VARCHAR(255);
 ALTER TABLE media_items ADD COLUMN IF NOT EXISTS file_hash VARCHAR(64);
+ALTER TABLE media_items ADD COLUMN IF NOT EXISTS bitrate_kbps INT;
 
 CREATE TABLE IF NOT EXISTS playback_progress (
     id BIGSERIAL PRIMARY KEY,

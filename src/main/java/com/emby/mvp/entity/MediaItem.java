@@ -19,6 +19,7 @@ public class MediaItem {
     private Integer width;
     private Integer height;
     private String codec;
+    private Integer bitrateKbps;
     private String posterUrl;
     private String fileHash;
     private LocalDateTime createdAt;

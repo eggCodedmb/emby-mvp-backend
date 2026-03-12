@@ -12,12 +12,15 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 
+import java.io.BufferedReader;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.security.MessageDigest;
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -102,6 +105,19 @@ public class LibraryServiceImpl implements LibraryService {
                             item.setFilePath(relative);
                             item.setFileHash(hash);
                             item.setFileSize(p.toFile().length());
+
+                            Map<String, String> meta = probeMediaMeta(p);
+                            if (meta.get("width") != null) item.setWidth(parseInt(meta.get("width")));
+                            if (meta.get("height") != null) item.setHeight(parseInt(meta.get("height")));
+                            if (meta.get("codec_name") != null) item.setCodec(meta.get("codec_name"));
+                            Integer durationSec = parseSeconds(meta.get("duration"));
+                            if (durationSec != null) item.setDurationSec(durationSec);
+                            String bitRate = meta.get("bit_rate");
+                            if (bitRate != null) {
+                                Integer bps = parseInt(bitRate);
+                                if (bps != null) item.setBitrateKbps(Math.max(1, bps / 1000));
+                            }
+
                             item.setUpdatedAt(LocalDateTime.now());
                             if (item.getCreatedAt() == null) item.setCreatedAt(LocalDateTime.now());
 
@@ -147,6 +163,49 @@ public class LibraryServiceImpl implements LibraryService {
                 md.update(buffer, 0, read);
             }
             return HexFormat.of().formatHex(md.digest());
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private Map<String, String> probeMediaMeta(Path mediaPath) {
+        Map<String, String> map = new HashMap<>();
+        try {
+            ProcessBuilder pb = new ProcessBuilder(
+                    "ffprobe", "-v", "error",
+                    "-show_entries", "stream=width,height,codec_name,bit_rate",
+                    "-show_entries", "format=duration,bit_rate",
+                    "-of", "default=noprint_wrappers=1",
+                    mediaPath.toString()
+            );
+            pb.redirectErrorStream(true);
+            Process p = pb.start();
+            try (BufferedReader br = new BufferedReader(new InputStreamReader(p.getInputStream()))) {
+                String line;
+                while ((line = br.readLine()) != null) {
+                    int idx = line.indexOf('=');
+                    if (idx > 0 && idx < line.length() - 1) {
+                        map.putIfAbsent(line.substring(0, idx), line.substring(idx + 1));
+                    }
+                }
+            }
+            p.waitFor();
+        } catch (Exception ignored) {
+        }
+        return map;
+    }
+
+    private Integer parseInt(String s) {
+        try {
+            return Integer.parseInt(s);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private Integer parseSeconds(String s) {
+        try {
+            return (int) Math.round(Double.parseDouble(s));
         } catch (Exception e) {
             return null;
         }
