@@ -27,7 +27,7 @@ app:
     root-path: "E:/Media"
     poster-dir: "E:/Media/.posters"
   tmdb:
-    api-key: ""
+    api-key: "311bdcf1ab590070fca59909a8dac778"
     image-base-url: "https://image.tmdb.org/t/p/w500"
 
 springdoc:
