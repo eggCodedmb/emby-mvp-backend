@@ -18,6 +18,7 @@ public class DataInitConfig {
     public CommandLineRunner adminInit(UserMapper userMapper, PasswordEncoder passwordEncoder, JdbcTemplate jdbcTemplate) {
         return args -> {
             jdbcTemplate.execute("ALTER TABLE media_items ADD COLUMN IF NOT EXISTS poster_url VARCHAR(255)");
+            jdbcTemplate.execute("ALTER TABLE media_items ADD COLUMN IF NOT EXISTS file_hash VARCHAR(64)");
 
             User admin = userMapper.selectOne(new LambdaQueryWrapper<User>()
                     .eq(User::getUsername, "admin")

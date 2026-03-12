@@ -10,10 +10,13 @@ import com.emby.mvp.service.LibraryService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.security.MessageDigest;
 import java.time.LocalDateTime;
+import java.util.HexFormat;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 
@@ -69,11 +72,24 @@ public class LibraryServiceImpl implements LibraryService {
                         total.incrementAndGet();
                         try {
                             String relative = p.toAbsolutePath().normalize().toString().replace('\\', '/');
+                            String hash = sha256(p);
+
                             var existing = mediaItemMapper.selectOne(new LambdaQueryWrapper<MediaItem>()
                                     .eq(MediaItem::getFilePath, relative).last("limit 1"));
+
+                            if (existing == null && hash != null) {
+                                var duplicated = mediaItemMapper.selectOne(new LambdaQueryWrapper<MediaItem>()
+                                        .eq(MediaItem::getFileHash, hash).last("limit 1"));
+                                if (duplicated != null) {
+                                    ok.incrementAndGet();
+                                    return;
+                                }
+                            }
+
                             MediaItem item = existing == null ? new MediaItem() : existing;
                             item.setTitle(p.getFileName().toString());
                             item.setFilePath(relative);
+                            item.setFileHash(hash);
                             item.setFileSize(p.toFile().length());
                             item.setUpdatedAt(LocalDateTime.now());
                             if (item.getCreatedAt() == null) item.setCreatedAt(LocalDateTime.now());
@@ -106,6 +122,20 @@ public class LibraryServiceImpl implements LibraryService {
         job.setFailCount(fail.get());
         jobMapper.updateById(job);
         return job;
+    }
+
+    private String sha256(Path file) {
+        try (InputStream in = Files.newInputStream(file)) {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] buffer = new byte[8192];
+            int read;
+            while ((read = in.read(buffer)) > 0) {
+                md.update(buffer, 0, read);
+            }
+            return HexFormat.of().formatHex(md.digest());
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private void extractPoster(Path mediaPath, Path posterPath) {
