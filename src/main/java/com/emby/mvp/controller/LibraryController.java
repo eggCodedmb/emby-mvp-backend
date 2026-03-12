@@ -4,7 +4,6 @@ import com.emby.mvp.common.ApiResponse;
 import com.emby.mvp.common.BizException;
 import com.emby.mvp.dto.ScanRequest;
 import com.emby.mvp.service.LibraryService;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -25,9 +24,6 @@ import java.util.Map;
 public class LibraryController {
     private final LibraryService libraryService;
 
-    @Value("${app.media.root-path}")
-    private String mediaRoot;
-
     public LibraryController(LibraryService libraryService) {
         this.libraryService = libraryService;
     }
@@ -38,40 +34,44 @@ public class LibraryController {
         boolean isAdmin = authentication.getAuthorities().stream().anyMatch(a -> "ROLE_ADMIN".equals(a.getAuthority()));
         if (!isAdmin) throw new BizException(4030, "forbidden");
 
-        Path base = Paths.get(mediaRoot).normalize().toAbsolutePath();
-        Path current;
-        if (path == null || path.isBlank()) {
-            current = base;
-        } else {
-            Path input = Paths.get(path);
-            current = (input.isAbsolute() ? input : base.resolve(input)).normalize().toAbsolutePath();
-        }
-        if (!current.startsWith(base)) throw new BizException(4004, "folder must be inside media root");
-        if (!Files.isDirectory(current)) throw new BizException(4044, "folder not found");
-
         try {
+            if (path == null || path.isBlank()) {
+                var roots = java.io.File.listRoots();
+                List<Map<String, String>> folders = java.util.Arrays.stream(roots)
+                        .map(r -> {
+                            String p = r.getAbsolutePath().replace('\\', '/');
+                            return Map.of("name", p, "path", p);
+                        })
+                        .toList();
+                return ApiResponse.ok(Map.of(
+                        "currentPath", "",
+                        "parentPath", "",
+                        "folders", folders
+                ));
+            }
+
+            Path current = Paths.get(path).normalize().toAbsolutePath();
+            if (!Files.isDirectory(current)) throw new BizException(4044, "folder not found");
+
             List<Map<String, String>> folders = Files.list(current)
                     .filter(Files::isDirectory)
                     .sorted(Comparator.comparing(Path::getFileName))
                     .map(p -> Map.of(
                             "name", p.getFileName().toString(),
-                            "path", base.relativize(p).toString().replace('\\', '/')
+                            "path", p.toAbsolutePath().normalize().toString().replace('\\', '/')
                     ))
                     .toList();
 
-            String currentPath = base.equals(current) ? "" : base.relativize(current).toString().replace('\\', '/');
-            String parentPath = "";
-            if (!base.equals(current)) {
-                Path parent = current.getParent();
-                if (parent != null && parent.startsWith(base) && !base.equals(current)) {
-                    parentPath = base.equals(parent) ? "" : base.relativize(parent).toString().replace('\\', '/');
-                }
-            }
+            Path parent = current.getParent();
+            String parentPath = parent == null ? "" : parent.toAbsolutePath().normalize().toString().replace('\\', '/');
+
             return ApiResponse.ok(Map.of(
-                    "currentPath", currentPath,
+                    "currentPath", current.toString().replace('\\', '/'),
                     "parentPath", parentPath,
                     "folders", folders
             ));
+        } catch (BizException e) {
+            throw e;
         } catch (Exception e) {
             throw new BizException(5001, "list folders failed: " + e.getMessage());
         }

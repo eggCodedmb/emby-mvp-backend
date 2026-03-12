@@ -44,16 +44,15 @@ public class LibraryServiceImpl implements LibraryService {
         AtomicInteger ok = new AtomicInteger();
         AtomicInteger fail = new AtomicInteger();
 
-        Path mediaBase = Paths.get(mediaRoot).normalize().toAbsolutePath();
         Path root;
         if (folderPath == null || folderPath.isBlank()) {
-            root = mediaBase;
+            root = Paths.get(mediaRoot).normalize().toAbsolutePath();
         } else {
             Path input = Paths.get(folderPath);
-            root = (input.isAbsolute() ? input : mediaBase.resolve(input)).normalize().toAbsolutePath();
+            root = input.normalize().toAbsolutePath();
         }
-        if (!root.startsWith(mediaBase)) {
-            throw new BizException(4004, "scan folder must be inside media root");
+        if (!Files.isDirectory(root)) {
+            throw new BizException(4044, "scan folder not found");
         }
         int walkDepth = (depth == null || depth <= 0) ? Integer.MAX_VALUE : Math.min(depth, 50);
 
@@ -69,7 +68,7 @@ public class LibraryServiceImpl implements LibraryService {
                     .forEach(p -> {
                         total.incrementAndGet();
                         try {
-                            String relative = mediaBase.relativize(p.toAbsolutePath().normalize()).toString().replace('\\', '/');
+                            String relative = p.toAbsolutePath().normalize().toString().replace('\\', '/');
                             var existing = mediaItemMapper.selectOne(new LambdaQueryWrapper<MediaItem>()
                                     .eq(MediaItem::getFilePath, relative).last("limit 1"));
                             MediaItem item = existing == null ? new MediaItem() : existing;
