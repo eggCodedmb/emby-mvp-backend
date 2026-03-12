@@ -1,4 +1,4 @@
-﻿package com.emby.mvp.dto;
+package com.emby.mvp.dto;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;

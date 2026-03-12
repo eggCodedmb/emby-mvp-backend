@@ -1,4 +1,4 @@
-﻿package com.emby.mvp.config;
+package com.emby.mvp.config;
 
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
 import com.baomidou.mybatisplus.extension.plugins.inner.PaginationInnerInterceptor;

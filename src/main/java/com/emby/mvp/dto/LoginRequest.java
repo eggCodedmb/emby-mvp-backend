@@ -1,4 +1,4 @@
-﻿package com.emby.mvp.dto;
+package com.emby.mvp.dto;
 
 import jakarta.validation.constraints.NotBlank;
 import lombok.Data;

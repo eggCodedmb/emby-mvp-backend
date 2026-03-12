@@ -1,4 +1,4 @@
-﻿package com.emby.mvp.service.impl;
+package com.emby.mvp.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.emby.mvp.entity.PlaybackProgress;

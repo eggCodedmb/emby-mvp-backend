@@ -1,4 +1,4 @@
-﻿package com.emby.mvp.service;
+package com.emby.mvp.service;
 
 import com.emby.mvp.entity.PlaybackProgress;
 

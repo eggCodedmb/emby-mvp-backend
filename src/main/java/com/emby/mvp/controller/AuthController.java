@@ -1,4 +1,4 @@
-﻿package com.emby.mvp.controller;
+package com.emby.mvp.controller;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.emby.mvp.common.ApiResponse;

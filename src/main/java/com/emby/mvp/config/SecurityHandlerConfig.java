@@ -1,4 +1,4 @@
-﻿package com.emby.mvp.config;
+package com.emby.mvp.config;
 
 import com.emby.mvp.common.ApiResponse;
 import com.fasterxml.jackson.databind.ObjectMapper;

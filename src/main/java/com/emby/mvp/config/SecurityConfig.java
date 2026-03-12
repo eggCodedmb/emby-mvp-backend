@@ -1,4 +1,4 @@
-﻿package com.emby.mvp.config;
+package com.emby.mvp.config;
 
 import com.emby.mvp.security.JwtAuthFilter;
 import org.springframework.context.annotation.Bean;

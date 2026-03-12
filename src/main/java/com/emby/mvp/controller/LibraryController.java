@@ -1,4 +1,4 @@
-﻿package com.emby.mvp.controller;
+package com.emby.mvp.controller;
 
 import com.emby.mvp.common.ApiResponse;
 import com.emby.mvp.common.BizException;

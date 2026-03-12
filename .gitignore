@@ -1,4 +1,5 @@
 ﻿/target/
 .idea/
+.tools/
 *.iml
 .idea/

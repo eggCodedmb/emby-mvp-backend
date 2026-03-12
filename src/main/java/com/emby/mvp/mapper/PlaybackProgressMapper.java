@@ -1,4 +1,4 @@
-﻿package com.emby.mvp.mapper;
+package com.emby.mvp.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.emby.mvp.entity.PlaybackProgress;

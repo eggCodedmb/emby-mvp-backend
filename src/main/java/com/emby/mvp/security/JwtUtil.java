@@ -1,4 +1,4 @@
-﻿package com.emby.mvp.security;
+package com.emby.mvp.security;
 
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
