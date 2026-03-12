@@ -26,6 +26,9 @@ app:
   media:
     root-path: "E:/Media"
     poster-dir: "E:/Media/.posters"
+  tmdb:
+    api-key: ""
+    image-base-url: "https://image.tmdb.org/t/p/w500"
 
 springdoc:
   swagger-ui:

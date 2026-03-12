@@ -48,6 +48,7 @@ curl -H "Authorization: Bearer <token>" \
 
 ## 说明
 
-- 媒体路径使用 `app.media.root-path` 作为根目录。
-- `/api/media/{id}/stream` 会做路径归一化与前缀校验，阻止 `../` 路径穿越。
+- 扫描会默认进行深度扫描（可传 depth 控制）。
+- 标题会自动去掉文件后缀（如 `.mp4`）。
+- 封面优先走 TMDB（需配置 `app.tmdb.api-key`），失败时回退为 ffmpeg 抽帧。
 - Swagger: `http://localhost:8080/swagger-ui.html`
