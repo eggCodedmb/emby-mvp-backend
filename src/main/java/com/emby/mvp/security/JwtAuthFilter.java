@@ -28,10 +28,21 @@ public class JwtAuthFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
+        String token = null;
         String auth = request.getHeader(HttpHeaders.AUTHORIZATION);
         if (auth != null && auth.startsWith("Bearer ")) {
+            token = auth.substring(7);
+        }
+
+        if (token == null || token.isBlank()) {
+            String path = request.getRequestURI();
+            if (path != null && path.matches("^/api/media/\\d+/stream$")) {
+                token = request.getParameter("access_token");
+            }
+        }
+
+        if (token != null && !token.isBlank()) {
             try {
-                String token = auth.substring(7);
                 Claims claims = jwtUtil.parse(token);
                 String userId = claims.getSubject();
                 String role = claims.get("role", String.class);
