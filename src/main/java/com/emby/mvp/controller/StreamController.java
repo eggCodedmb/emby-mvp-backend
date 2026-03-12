@@ -51,11 +51,20 @@ public class StreamController {
     @GetMapping("/{id}/stream")
     public void stream(@PathVariable Long id, HttpServletRequest request, HttpServletResponse response) throws IOException {
         MediaItem item = mediaService.getById(id);
-        Path root = Paths.get(mediaRoot).normalize().toAbsolutePath();
-        Path file = root.resolve(item.getFilePath()).normalize().toAbsolutePath();
-        if (!file.startsWith(root)) {
+        Path file;
+        try {
+            Path dbPath = Paths.get(item.getFilePath());
+            if (dbPath.isAbsolute()) {
+                file = dbPath.normalize().toAbsolutePath();
+            } else {
+                // 兼容历史数据：如果是相对路径，仍按 mediaRoot 解析
+                Path root = Paths.get(mediaRoot).normalize().toAbsolutePath();
+                file = root.resolve(dbPath).normalize().toAbsolutePath();
+            }
+        } catch (Exception e) {
             throw new BizException(4003, "invalid media path");
         }
+
         if (!file.toFile().exists()) {
             throw new BizException(4042, "media file not found");
         }
