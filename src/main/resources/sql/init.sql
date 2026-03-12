@@ -15,9 +15,12 @@ CREATE TABLE IF NOT EXISTS media_items (
     width INT,
     height INT,
     codec VARCHAR(64),
+    poster_url VARCHAR(255),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+ALTER TABLE media_items ADD COLUMN IF NOT EXISTS poster_url VARCHAR(255);
 
 CREATE TABLE IF NOT EXISTS playback_progress (
     id BIGSERIAL PRIMARY KEY,

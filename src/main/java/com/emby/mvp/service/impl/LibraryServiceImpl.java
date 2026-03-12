@@ -24,6 +24,9 @@ public class LibraryServiceImpl implements LibraryService {
     @Value("${app.media.root-path}")
     private String mediaRoot;
 
+    @Value("${app.media.poster-dir}")
+    private String posterDir;
+
     public LibraryServiceImpl(LibraryScanJobMapper jobMapper, MediaItemMapper mediaItemMapper) {
         this.jobMapper = jobMapper;
         this.mediaItemMapper = mediaItemMapper;
@@ -41,6 +44,12 @@ public class LibraryServiceImpl implements LibraryService {
         AtomicInteger fail = new AtomicInteger();
 
         Path root = Paths.get(mediaRoot).normalize().toAbsolutePath();
+        Path posterRoot = Paths.get(posterDir).normalize().toAbsolutePath();
+        try {
+            Files.createDirectories(posterRoot);
+        } catch (Exception ignored) {
+        }
+
         try (Stream<Path> paths = Files.walk(root)) {
             paths.filter(Files::isRegularFile)
                     .filter(p -> p.toString().toLowerCase().endsWith(".mp4"))
@@ -56,8 +65,19 @@ public class LibraryServiceImpl implements LibraryService {
                             item.setFileSize(p.toFile().length());
                             item.setUpdatedAt(LocalDateTime.now());
                             if (item.getCreatedAt() == null) item.setCreatedAt(LocalDateTime.now());
+
                             if (item.getId() == null) mediaItemMapper.insert(item);
                             else mediaItemMapper.updateById(item);
+
+                            Path posterPath = posterRoot.resolve(item.getId() + ".jpg");
+                            if (!Files.exists(posterPath)) {
+                                extractPoster(p, posterPath);
+                            }
+                            if (Files.exists(posterPath)) {
+                                item.setPosterUrl("/api/media/" + item.getId() + "/poster");
+                                mediaItemMapper.updateById(item);
+                            }
+
                             ok.incrementAndGet();
                         } catch (Exception e) {
                             fail.incrementAndGet();
@@ -74,5 +94,22 @@ public class LibraryServiceImpl implements LibraryService {
         job.setFailCount(fail.get());
         jobMapper.updateById(job);
         return job;
+    }
+
+    private void extractPoster(Path mediaPath, Path posterPath) {
+        try {
+            ProcessBuilder pb = new ProcessBuilder(
+                    "ffmpeg", "-y",
+                    "-ss", "00:00:03",
+                    "-i", mediaPath.toString(),
+                    "-frames:v", "1",
+                    "-q:v", "2",
+                    posterPath.toString()
+            );
+            pb.redirectErrorStream(true);
+            Process process = pb.start();
+            process.waitFor();
+        } catch (Exception ignored) {
+        }
     }
 }

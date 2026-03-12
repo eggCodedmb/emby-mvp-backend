@@ -25,6 +25,7 @@ app:
     expire-seconds: 86400
   media:
     root-path: "E:/Media"
+    poster-dir: "E:/Media/.posters"
 
 springdoc:
   swagger-ui:

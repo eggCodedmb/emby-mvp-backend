@@ -36,7 +36,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
         if (token == null || token.isBlank()) {
             String path = request.getRequestURI();
-            if (path != null && path.matches("^/api/media/\\d+/stream$")) {
+            if (path != null && (path.matches("^/api/media/\\d+/stream$") || path.matches("^/api/media/\\d+/poster$"))) {
                 token = request.getParameter("access_token");
             }
         }

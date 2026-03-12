@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.io.IOException;
 import java.io.RandomAccessFile;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
@@ -27,10 +28,24 @@ public class StreamController {
     @Value("${app.media.root-path}")
     private String mediaRoot;
 
+    @Value("${app.media.poster-dir}")
+    private String posterDir;
+
     private final MediaService mediaService;
 
     public StreamController(MediaService mediaService) {
         this.mediaService = mediaService;
+    }
+
+    @GetMapping("/{id}/poster")
+    public void poster(@PathVariable Long id, HttpServletResponse response) throws IOException {
+        Path poster = Paths.get(posterDir).resolve(id + ".jpg").normalize().toAbsolutePath();
+        if (!Files.exists(poster)) {
+            throw new BizException(4043, "poster not found");
+        }
+        response.setContentType(MediaType.IMAGE_JPEG_VALUE);
+        Files.copy(poster, response.getOutputStream());
+        response.flushBuffer();
     }
 
     @GetMapping("/{id}/stream")
