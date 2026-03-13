@@ -7,6 +7,7 @@ import com.emby.mvp.entity.MediaItem;
 import com.emby.mvp.mapper.LibraryScanJobMapper;
 import com.emby.mvp.mapper.MediaItemMapper;
 import com.emby.mvp.service.LibraryService;
+import com.emby.mvp.service.LogService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
@@ -23,6 +24,9 @@ import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 
@@ -30,6 +34,7 @@ import java.util.stream.Stream;
 public class LibraryServiceImpl implements LibraryService {
     private final LibraryScanJobMapper jobMapper;
     private final MediaItemMapper mediaItemMapper;
+    private final LogService logService;
 
     @Value("${app.media.root-path}")
     private String mediaRoot;
@@ -44,10 +49,47 @@ public class LibraryServiceImpl implements LibraryService {
     private String tmdbImageBaseUrl;
 
     private final RestTemplate restTemplate = new RestTemplate();
+    private final ExecutorService scanExecutor = Executors.newSingleThreadExecutor();
+    private final AtomicBoolean scanRunning = new AtomicBoolean(false);
 
-    public LibraryServiceImpl(LibraryScanJobMapper jobMapper, MediaItemMapper mediaItemMapper) {
+    public LibraryServiceImpl(LibraryScanJobMapper jobMapper, MediaItemMapper mediaItemMapper, LogService logService) {
         this.jobMapper = jobMapper;
         this.mediaItemMapper = mediaItemMapper;
+        this.logService = logService;
+    }
+
+    @Override
+    public LibraryScanJob startScanAsync(String folderPath, Integer depth) {
+        if (!scanRunning.compareAndSet(false, true)) {
+            throw new BizException(4091, "scan already running");
+        }
+
+        LibraryScanJob job = new LibraryScanJob();
+        job.setStatus("RUNNING");
+        job.setStartedAt(LocalDateTime.now());
+        job.setTotalFiles(0);
+        job.setSuccessCount(0);
+        job.setFailCount(0);
+        jobMapper.insert(job);
+
+        Long jobId = job.getId();
+        logService.write("SCAN", "开始扫描任务 jobId=" + jobId + ", folder=" + (folderPath == null ? "" : folderPath));
+        scanExecutor.submit(() -> {
+            try {
+                runScan(jobId, folderPath, depth);
+            } finally {
+                scanRunning.set(false);
+            }
+        });
+
+        return job;
+    }
+
+    @Override
+    public LibraryScanJob getScanJob(Long jobId) {
+        LibraryScanJob job = jobMapper.selectById(jobId);
+        if (job == null) throw new BizException(4045, "scan job not found");
+        return job;
     }
 
     @Override
@@ -55,8 +97,17 @@ public class LibraryServiceImpl implements LibraryService {
         LibraryScanJob job = new LibraryScanJob();
         job.setStatus("RUNNING");
         job.setStartedAt(LocalDateTime.now());
+        job.setTotalFiles(0);
+        job.setSuccessCount(0);
+        job.setFailCount(0);
         jobMapper.insert(job);
 
+        runScan(job.getId(), folderPath, depth);
+        return getScanJob(job.getId());
+    }
+
+    private void runScan(Long jobId, String folderPath, Integer depth) {
+        LibraryScanJob job = getScanJob(jobId);
         AtomicInteger total = new AtomicInteger();
         AtomicInteger ok = new AtomicInteger();
         AtomicInteger fail = new AtomicInteger();
@@ -69,6 +120,10 @@ public class LibraryServiceImpl implements LibraryService {
             root = input.normalize().toAbsolutePath();
         }
         if (!Files.isDirectory(root)) {
+            job.setStatus("FAILED");
+            job.setFinishedAt(LocalDateTime.now());
+            jobMapper.updateById(job);
+            logService.write("SCAN", "扫描失败 jobId=" + jobId + "，目录不存在");
             throw new BizException(4044, "scan folder not found");
         }
         int walkDepth = (depth == null || depth <= 0) ? Integer.MAX_VALUE : Math.min(depth, 50);
@@ -86,16 +141,24 @@ public class LibraryServiceImpl implements LibraryService {
                         total.incrementAndGet();
                         try {
                             String relative = p.toAbsolutePath().normalize().toString().replace('\\', '/');
-                            String hash = sha256(p);
+                            long fileSize = p.toFile().length();
 
                             var existing = mediaItemMapper.selectOne(new LambdaQueryWrapper<MediaItem>()
                                     .eq(MediaItem::getFilePath, relative).last("limit 1"));
 
+                            if (existing != null && existing.getFileSize() != null && existing.getFileSize() == fileSize) {
+                                ok.incrementAndGet();
+                                if (total.get() % 20 == 0) updateJobProgress(job, total.get(), ok.get(), fail.get());
+                                return;
+                            }
+
+                            String hash = sha256(p);
                             if (existing == null && hash != null) {
                                 var duplicated = mediaItemMapper.selectOne(new LambdaQueryWrapper<MediaItem>()
                                         .eq(MediaItem::getFileHash, hash).last("limit 1"));
                                 if (duplicated != null) {
                                     ok.incrementAndGet();
+                                    if (total.get() % 20 == 0) updateJobProgress(job, total.get(), ok.get(), fail.get());
                                     return;
                                 }
                             }
@@ -104,7 +167,7 @@ public class LibraryServiceImpl implements LibraryService {
                             item.setTitle(normalizeTitle(p.getFileName().toString()));
                             item.setFilePath(relative);
                             item.setFileHash(hash);
-                            item.setFileSize(p.toFile().length());
+                            item.setFileSize(fileSize);
 
                             Map<String, String> meta = probeMediaMeta(p);
                             if (meta.get("width") != null) item.setWidth(parseInt(meta.get("width")));
@@ -140,6 +203,10 @@ public class LibraryServiceImpl implements LibraryService {
                         } catch (Exception e) {
                             fail.incrementAndGet();
                         }
+
+                        if (total.get() % 20 == 0) {
+                            updateJobProgress(job, total.get(), ok.get(), fail.get());
+                        }
                     });
             job.setStatus("DONE");
         } catch (Exception e) {
@@ -151,7 +218,15 @@ public class LibraryServiceImpl implements LibraryService {
         job.setSuccessCount(ok.get());
         job.setFailCount(fail.get());
         jobMapper.updateById(job);
-        return job;
+
+        logService.write("SCAN", "扫描结束 jobId=" + jobId + ", status=" + job.getStatus() + ", total=" + total.get() + ", success=" + ok.get() + ", fail=" + fail.get());
+    }
+
+    private void updateJobProgress(LibraryScanJob job, int total, int ok, int fail) {
+        job.setTotalFiles(total);
+        job.setSuccessCount(ok);
+        job.setFailCount(fail);
+        jobMapper.updateById(job);
     }
 
     private String sha256(Path file) {

@@ -45,6 +45,13 @@ CREATE TABLE IF NOT EXISTS library_scan_jobs (
     fail_count INT DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS operation_logs (
+    id BIGSERIAL PRIMARY KEY,
+    type VARCHAR(32) NOT NULL,
+    content TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 INSERT INTO users(username, password_hash, role)
 VALUES ('admin', '$2a$10$7EqJtq98hPqEX7fNZaFWoO5X6x6tEN84ImU8vz5KM38XxjPR9U1uO', 'admin')
 ON CONFLICT (username) DO NOTHING;

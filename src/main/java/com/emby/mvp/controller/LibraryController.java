@@ -6,6 +6,7 @@ import com.emby.mvp.dto.ScanRequest;
 import com.emby.mvp.service.LibraryService;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -84,5 +85,21 @@ public class LibraryController {
         String folder = req == null ? null : req.getFolderPath();
         Integer depth = req == null ? null : req.getDepth();
         return ApiResponse.ok(libraryService.scan(folder, depth));
+    }
+
+    @PostMapping("/scan/start")
+    public ApiResponse<Object> startScan(Authentication authentication, @RequestBody(required = false) ScanRequest req) {
+        boolean isAdmin = authentication.getAuthorities().stream().anyMatch(a -> "ROLE_ADMIN".equals(a.getAuthority()));
+        if (!isAdmin) throw new BizException(4030, "forbidden");
+        String folder = req == null ? null : req.getFolderPath();
+        Integer depth = req == null ? null : req.getDepth();
+        return ApiResponse.ok(libraryService.startScanAsync(folder, depth));
+    }
+
+    @GetMapping("/scan/{jobId}")
+    public ApiResponse<Object> scanStatus(Authentication authentication, @PathVariable Long jobId) {
+        boolean isAdmin = authentication.getAuthorities().stream().anyMatch(a -> "ROLE_ADMIN".equals(a.getAuthority()));
+        if (!isAdmin) throw new BizException(4030, "forbidden");
+        return ApiResponse.ok(libraryService.getScanJob(jobId));
     }
 }
