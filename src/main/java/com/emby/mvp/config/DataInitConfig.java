@@ -26,6 +26,16 @@ public class DataInitConfig {
                     "content TEXT," +
                     "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP" +
                     ")");
+            jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS media_subtitles (" +
+                    "id BIGSERIAL PRIMARY KEY," +
+                    "media_id BIGINT NOT NULL REFERENCES media_items(id)," +
+                    "video_title VARCHAR(255)," +
+                    "language VARCHAR(32)," +
+                    "code VARCHAR(32)," +
+                    "file_path TEXT NOT NULL," +
+                    "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP," +
+                    "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP" +
+                    ")");
 
             User admin = userMapper.selectOne(new LambdaQueryWrapper<User>()
                     .eq(User::getUsername, "admin")

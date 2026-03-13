@@ -52,6 +52,17 @@ CREATE TABLE IF NOT EXISTS operation_logs (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS media_subtitles (
+    id BIGSERIAL PRIMARY KEY,
+    media_id BIGINT NOT NULL REFERENCES media_items(id),
+    video_title VARCHAR(255),
+    language VARCHAR(32),
+    code VARCHAR(32),
+    file_path TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 INSERT INTO users(username, password_hash, role)
 VALUES ('admin', '$2a$10$7EqJtq98hPqEX7fNZaFWoO5X6x6tEN84ImU8vz5KM38XxjPR9U1uO', 'admin')
 ON CONFLICT (username) DO NOTHING;

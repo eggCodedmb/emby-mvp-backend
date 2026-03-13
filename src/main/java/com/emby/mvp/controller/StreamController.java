@@ -2,17 +2,21 @@ package com.emby.mvp.controller;
 
 import com.emby.mvp.common.BizException;
 import com.emby.mvp.entity.MediaItem;
+import com.emby.mvp.entity.MediaSubtitle;
 import com.emby.mvp.service.MediaService;
+import com.emby.mvp.service.SubtitleService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.security.core.Authentication;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.io.IOException;
@@ -32,9 +36,11 @@ public class StreamController {
     private String posterDir;
 
     private final MediaService mediaService;
+    private final SubtitleService subtitleService;
 
-    public StreamController(MediaService mediaService) {
+    public StreamController(MediaService mediaService, SubtitleService subtitleService) {
         this.mediaService = mediaService;
+        this.subtitleService = subtitleService;
     }
 
     @GetMapping("/{id}/poster")
@@ -45,6 +51,38 @@ public class StreamController {
         }
         response.setContentType(MediaType.IMAGE_JPEG_VALUE);
         Files.copy(poster, response.getOutputStream());
+        response.flushBuffer();
+    }
+
+    @GetMapping("/{id}/subtitle")
+    public void subtitle(@PathVariable Long id,
+                         @RequestParam(required = false) String title,
+                         @RequestParam(required = false, name = "lang") String lang,
+                         Authentication authentication,
+                         HttpServletResponse response) throws IOException {
+        boolean isAdmin = authentication.getAuthorities().stream().anyMatch(a -> "ROLE_ADMIN".equals(a.getAuthority()));
+        if (!isAdmin) throw new BizException(4030, "forbidden");
+
+        java.util.List<String> preferredLangs;
+        if (lang == null || lang.isBlank()) {
+            preferredLangs = java.util.Arrays.asList("Chinese (Simplified)", "Chinese (Traditional)", "Mandarin", "Chinese", "English");
+        } else if ("zh".equalsIgnoreCase(lang) || "zh-CN".equalsIgnoreCase(lang) || "cn".equalsIgnoreCase(lang)) {
+            preferredLangs = java.util.Arrays.asList("Chinese (Simplified)", "Chinese (Traditional)", "Mandarin", "Chinese", "English");
+        } else if ("en".equalsIgnoreCase(lang) || "en-US".equalsIgnoreCase(lang)) {
+            preferredLangs = java.util.Arrays.asList("English", "Chinese (Simplified)", "Chinese (Traditional)", "Mandarin", "Chinese");
+        } else {
+            preferredLangs = java.util.Arrays.asList(lang, "Chinese (Simplified)", "Chinese (Traditional)", "Mandarin", "Chinese", "English");
+        }
+
+        MediaSubtitle subtitle = subtitleService.fetchOrDownload(id, title, preferredLangs);
+        Path file = Paths.get(subtitle.getFilePath()).toAbsolutePath().normalize();
+        if (!Files.exists(file)) throw new BizException(4048, "subtitle file not found");
+
+        String name = file.getFileName().toString().toLowerCase();
+        String contentType = name.endsWith(".vtt") ? "text/vtt;charset=UTF-8" : "application/x-subrip;charset=UTF-8";
+        response.setContentType(contentType);
+        response.setHeader(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + file.getFileName() + "\"");
+        Files.copy(file, response.getOutputStream());
         response.flushBuffer();
     }
 
