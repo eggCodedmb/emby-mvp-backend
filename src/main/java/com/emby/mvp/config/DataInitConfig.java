@@ -20,6 +20,12 @@ public class DataInitConfig {
             jdbcTemplate.execute("ALTER TABLE media_items ADD COLUMN IF NOT EXISTS poster_url VARCHAR(255)");
             jdbcTemplate.execute("ALTER TABLE media_items ADD COLUMN IF NOT EXISTS file_hash VARCHAR(64)");
             jdbcTemplate.execute("ALTER TABLE media_items ADD COLUMN IF NOT EXISTS bitrate_kbps INT");
+            jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS operation_logs (" +
+                    "id BIGSERIAL PRIMARY KEY," +
+                    "type VARCHAR(32) NOT NULL," +
+                    "content TEXT," +
+                    "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP" +
+                    ")");
 
             User admin = userMapper.selectOne(new LambdaQueryWrapper<User>()
                     .eq(User::getUsername, "admin")
