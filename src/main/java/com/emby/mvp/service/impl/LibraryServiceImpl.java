@@ -9,6 +9,7 @@ import com.emby.mvp.mapper.MediaItemMapper;
 import com.emby.mvp.service.LibraryService;
 import com.emby.mvp.service.LogService;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
@@ -20,6 +21,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.security.MessageDigest;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -28,6 +30,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
@@ -50,14 +53,21 @@ public class LibraryServiceImpl implements LibraryService {
     @Value("${app.tmdb.image-base-url:https://image.tmdb.org/t/p/w500}")
     private String tmdbImageBaseUrl;
 
-    private final RestTemplate restTemplate = new RestTemplate();
+    private final RestTemplate restTemplate;
     private final ExecutorService scanExecutor = Executors.newSingleThreadExecutor();
     private final AtomicBoolean scanRunning = new AtomicBoolean(false);
 
-    public LibraryServiceImpl(LibraryScanJobMapper jobMapper, MediaItemMapper mediaItemMapper, LogService logService) {
+    public LibraryServiceImpl(LibraryScanJobMapper jobMapper,
+                              MediaItemMapper mediaItemMapper,
+                              LogService logService,
+                              RestTemplateBuilder restTemplateBuilder) {
         this.jobMapper = jobMapper;
         this.mediaItemMapper = mediaItemMapper;
         this.logService = logService;
+        this.restTemplate = restTemplateBuilder
+                .setConnectTimeout(Duration.ofSeconds(3))
+                .setReadTimeout(Duration.ofSeconds(8))
+                .build();
     }
 
     @Override
@@ -266,7 +276,10 @@ public class LibraryServiceImpl implements LibraryService {
                     }
                 }
             }
-            p.waitFor();
+            boolean finished = p.waitFor(8, TimeUnit.SECONDS);
+            if (!finished) {
+                p.destroyForcibly();
+            }
         } catch (Exception ignored) {
         }
         return map;
@@ -383,7 +396,11 @@ public class LibraryServiceImpl implements LibraryService {
             ProcessBuilder pb = new ProcessBuilder(command);
             pb.redirectErrorStream(true);
             Process process = pb.start();
-            process.waitFor();
+            boolean finished = process.waitFor(20, TimeUnit.SECONDS);
+            if (!finished) {
+                process.destroyForcibly();
+                return false;
+            }
             return process.exitValue() == 0 && Files.exists(posterPath) && Files.size(posterPath) > 0;
         } catch (Exception ignored) {
             return false;
