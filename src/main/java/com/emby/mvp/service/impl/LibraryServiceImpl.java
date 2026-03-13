@@ -379,15 +379,17 @@ public class LibraryServiceImpl implements LibraryService {
     }
 
     private void extractPoster(Path mediaPath, Path posterPath) {
-        // Try hardware decode first, then fallback to software decode
+        // Try hardware decode first, then fallback to software decode and thumbnail filter
         List<List<String>> commands = Arrays.asList(
                 Arrays.asList(
                         "ffmpeg", "-y",
                         "-hwaccel", "cuda",
                         "-ss", "00:00:03",
                         "-i", mediaPath.toString(),
+                        "-an", "-sn", "-dn",
                         "-frames:v", "1",
                         "-q:v", "2",
+                        "-update", "1",
                         posterPath.toString()
                 ),
                 Arrays.asList(
@@ -395,8 +397,10 @@ public class LibraryServiceImpl implements LibraryService {
                         "-hwaccel", "qsv",
                         "-ss", "00:00:03",
                         "-i", mediaPath.toString(),
+                        "-an", "-sn", "-dn",
                         "-frames:v", "1",
                         "-q:v", "2",
+                        "-update", "1",
                         posterPath.toString()
                 ),
                 Arrays.asList(
@@ -404,22 +408,36 @@ public class LibraryServiceImpl implements LibraryService {
                         "-hwaccel", "d3d11va",
                         "-ss", "00:00:03",
                         "-i", mediaPath.toString(),
+                        "-an", "-sn", "-dn",
                         "-frames:v", "1",
                         "-q:v", "2",
+                        "-update", "1",
                         posterPath.toString()
                 ),
                 Arrays.asList(
                         "ffmpeg", "-y",
                         "-ss", "00:00:03",
                         "-i", mediaPath.toString(),
+                        "-an", "-sn", "-dn",
                         "-frames:v", "1",
                         "-q:v", "2",
+                        "-update", "1",
+                        posterPath.toString()
+                ),
+                Arrays.asList(
+                        "ffmpeg", "-y",
+                        "-i", mediaPath.toString(),
+                        "-an", "-sn", "-dn",
+                        "-vf", "thumbnail=120,scale=-2:720",
+                        "-frames:v", "1",
+                        "-q:v", "3",
+                        "-update", "1",
                         posterPath.toString()
                 )
         );
 
         for (List<String> cmd : commands) {
-            if (runFfmpeg(cmd, posterPath)) {
+            if (runFfmpeg(cmd, posterPath, 90)) {
                 return;
             }
         }
@@ -427,7 +445,7 @@ public class LibraryServiceImpl implements LibraryService {
         logService.write("SCAN", "抽帧封面失败，已尝试硬件/软件解码: " + mediaPath);
     }
 
-    private boolean runFfmpeg(List<String> command, Path posterPath) {
+    private boolean runFfmpeg(List<String> command, Path posterPath, int timeoutSeconds) {
         try {
             try {
                 Files.deleteIfExists(posterPath);
@@ -436,7 +454,7 @@ public class LibraryServiceImpl implements LibraryService {
             ProcessBuilder pb = new ProcessBuilder(command);
             pb.redirectErrorStream(true);
             Process process = pb.start();
-            boolean finished = process.waitFor(20, TimeUnit.SECONDS);
+            boolean finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS);
             if (!finished) {
                 process.destroyForcibly();
                 return false;
