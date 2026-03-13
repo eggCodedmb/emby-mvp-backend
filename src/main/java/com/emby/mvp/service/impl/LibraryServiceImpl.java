@@ -21,8 +21,10 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.security.MessageDigest;
 import java.time.LocalDateTime;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -324,19 +326,67 @@ public class LibraryServiceImpl implements LibraryService {
     }
 
     private void extractPoster(Path mediaPath, Path posterPath) {
+        // Try hardware decode first, then fallback to software decode
+        List<List<String>> commands = Arrays.asList(
+                Arrays.asList(
+                        "ffmpeg", "-y",
+                        "-hwaccel", "cuda",
+                        "-ss", "00:00:03",
+                        "-i", mediaPath.toString(),
+                        "-frames:v", "1",
+                        "-q:v", "2",
+                        posterPath.toString()
+                ),
+                Arrays.asList(
+                        "ffmpeg", "-y",
+                        "-hwaccel", "qsv",
+                        "-ss", "00:00:03",
+                        "-i", mediaPath.toString(),
+                        "-frames:v", "1",
+                        "-q:v", "2",
+                        posterPath.toString()
+                ),
+                Arrays.asList(
+                        "ffmpeg", "-y",
+                        "-hwaccel", "d3d11va",
+                        "-ss", "00:00:03",
+                        "-i", mediaPath.toString(),
+                        "-frames:v", "1",
+                        "-q:v", "2",
+                        posterPath.toString()
+                ),
+                Arrays.asList(
+                        "ffmpeg", "-y",
+                        "-ss", "00:00:03",
+                        "-i", mediaPath.toString(),
+                        "-frames:v", "1",
+                        "-q:v", "2",
+                        posterPath.toString()
+                )
+        );
+
+        for (List<String> cmd : commands) {
+            if (runFfmpeg(cmd, posterPath)) {
+                return;
+            }
+        }
+
+        logService.write("SCAN", "抽帧封面失败，已尝试硬件/软件解码: " + mediaPath);
+    }
+
+    private boolean runFfmpeg(List<String> command, Path posterPath) {
         try {
-            ProcessBuilder pb = new ProcessBuilder(
-                    "ffmpeg", "-y",
-                    "-ss", "00:00:03",
-                    "-i", mediaPath.toString(),
-                    "-frames:v", "1",
-                    "-q:v", "2",
-                    posterPath.toString()
-            );
+            try {
+                Files.deleteIfExists(posterPath);
+            } catch (Exception ignored) {
+            }
+            ProcessBuilder pb = new ProcessBuilder(command);
             pb.redirectErrorStream(true);
             Process process = pb.start();
             process.waitFor();
+            return process.exitValue() == 0 && Files.exists(posterPath) && Files.size(posterPath) > 0;
         } catch (Exception ignored) {
+            return false;
         }
     }
 }
