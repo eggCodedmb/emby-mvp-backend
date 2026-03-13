@@ -22,6 +22,7 @@ public class MediaItem {
     private Integer bitrateKbps;
     private String posterUrl;
     private String fileHash;
+    private Long fileMtimeMs;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

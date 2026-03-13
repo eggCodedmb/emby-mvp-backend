@@ -28,7 +28,11 @@ import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
+import java.util.ArrayList;
+import java.util.concurrent.CompletionService;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -146,83 +150,51 @@ public class LibraryServiceImpl implements LibraryService {
         } catch (Exception ignored) {
         }
 
+        ExecutorService workerPool = null;
         try (Stream<Path> paths = Files.walk(root, walkDepth)) {
+            ArrayList<Path> mediaFiles = new ArrayList<>();
             paths.filter(Files::isRegularFile)
                     .filter(p -> p.toString().toLowerCase().endsWith(".mp4"))
-                    .forEach(p -> {
-                        total.incrementAndGet();
-                        try {
-                            String relative = p.toAbsolutePath().normalize().toString().replace('\\', '/');
-                            long fileSize = p.toFile().length();
+                    .forEach(mediaFiles::add);
 
-                            var existing = mediaItemMapper.selectOne(new LambdaQueryWrapper<MediaItem>()
-                                    .eq(MediaItem::getFilePath, relative).last("limit 1"));
+            total.set(mediaFiles.size());
+            updateJobProgress(job, total.get(), ok.get(), fail.get());
 
-                            if (existing != null && existing.getFileSize() != null && existing.getFileSize() == fileSize) {
-                                ok.incrementAndGet();
-                                if (total.get() % 20 == 0) updateJobProgress(job, total.get(), ok.get(), fail.get());
-                                return;
-                            }
+            int workers = Math.max(2, Math.min(8, Runtime.getRuntime().availableProcessors()));
+            workerPool = Executors.newFixedThreadPool(workers);
+            CompletionService<Boolean> completionService = new ExecutorCompletionService<>(workerPool);
 
-                            String hash = sha256(p);
-                            if (existing == null && hash != null) {
-                                var duplicated = mediaItemMapper.selectOne(new LambdaQueryWrapper<MediaItem>()
-                                        .eq(MediaItem::getFileHash, hash).last("limit 1"));
-                                if (duplicated != null) {
-                                    ok.incrementAndGet();
-                                    if (total.get() % 20 == 0) updateJobProgress(job, total.get(), ok.get(), fail.get());
-                                    return;
-                                }
-                            }
+            for (Path p : mediaFiles) {
+                completionService.submit(() -> processOneFile(p, posterRoot));
+            }
 
-                            MediaItem item = existing == null ? new MediaItem() : existing;
-                            item.setTitle(normalizeTitle(p.getFileName().toString()));
-                            item.setFilePath(relative);
-                            item.setFileHash(hash);
-                            item.setFileSize(fileSize);
+            for (int i = 0; i < mediaFiles.size(); i++) {
+                boolean success = completionService.take().get();
+                if (success) ok.incrementAndGet();
+                else fail.incrementAndGet();
 
-                            Map<String, String> meta = probeMediaMeta(p);
-                            if (meta.get("width") != null) item.setWidth(parseInt(meta.get("width")));
-                            if (meta.get("height") != null) item.setHeight(parseInt(meta.get("height")));
-                            if (meta.get("codec_name") != null) item.setCodec(meta.get("codec_name"));
-                            Integer durationSec = parseSeconds(meta.get("duration"));
-                            if (durationSec != null) item.setDurationSec(durationSec);
-                            String bitRate = meta.get("bit_rate");
-                            if (bitRate != null) {
-                                Integer bps = parseInt(bitRate);
-                                if (bps != null) item.setBitrateKbps(Math.max(1, bps / 1000));
-                            }
-
-                            item.setUpdatedAt(LocalDateTime.now());
-                            if (item.getCreatedAt() == null) item.setCreatedAt(LocalDateTime.now());
-
-                            if (item.getId() == null) mediaItemMapper.insert(item);
-                            else mediaItemMapper.updateById(item);
-
-                            Path posterPath = posterRoot.resolve(item.getId() + ".jpg");
-                            if (!Files.exists(posterPath)) {
-                                boolean tmdbOk = downloadPosterFromTmdb(item.getTitle(), posterPath);
-                                if (!tmdbOk) {
-                                    extractPoster(p, posterPath);
-                                }
-                            }
-                            if (Files.exists(posterPath)) {
-                                item.setPosterUrl("/api/media/" + item.getId() + "/poster");
-                                mediaItemMapper.updateById(item);
-                            }
-
-                            ok.incrementAndGet();
-                        } catch (Exception e) {
-                            fail.incrementAndGet();
-                        }
-
-                        if (total.get() % 20 == 0) {
-                            updateJobProgress(job, total.get(), ok.get(), fail.get());
-                        }
-                    });
+                if ((i + 1) % 20 == 0 || i + 1 == mediaFiles.size()) {
+                    updateJobProgress(job, total.get(), ok.get(), fail.get());
+                }
+            }
             job.setStatus("DONE");
-        } catch (Exception e) {
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
             job.setStatus("FAILED");
+        } catch (ExecutionException | RuntimeException | java.io.IOException e) {
+            job.setStatus("FAILED");
+        } finally {
+            if (workerPool != null) {
+                workerPool.shutdown();
+                try {
+                    if (!workerPool.awaitTermination(60, TimeUnit.SECONDS)) {
+                        workerPool.shutdownNow();
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    workerPool.shutdownNow();
+                }
+            }
         }
 
         job.setFinishedAt(LocalDateTime.now());
@@ -239,6 +211,74 @@ public class LibraryServiceImpl implements LibraryService {
         job.setSuccessCount(ok);
         job.setFailCount(fail);
         jobMapper.updateById(job);
+    }
+
+    private boolean processOneFile(Path p, Path posterRoot) {
+        try {
+            String relative = p.toAbsolutePath().normalize().toString().replace('\\', '/');
+            long fileSize = p.toFile().length();
+            long fileMtimeMs = Files.getLastModifiedTime(p).toMillis();
+
+            var existing = mediaItemMapper.selectOne(new LambdaQueryWrapper<MediaItem>()
+                    .eq(MediaItem::getFilePath, relative).last("limit 1"));
+
+            if (existing != null
+                    && existing.getFileSize() != null
+                    && existing.getFileSize() == fileSize
+                    && existing.getFileMtimeMs() != null
+                    && existing.getFileMtimeMs() == fileMtimeMs) {
+                return true;
+            }
+
+            String hash = sha256(p);
+            if (existing == null && hash != null) {
+                var duplicated = mediaItemMapper.selectOne(new LambdaQueryWrapper<MediaItem>()
+                        .eq(MediaItem::getFileHash, hash).last("limit 1"));
+                if (duplicated != null) {
+                    return true;
+                }
+            }
+
+            MediaItem item = existing == null ? new MediaItem() : existing;
+            item.setTitle(normalizeTitle(p.getFileName().toString()));
+            item.setFilePath(relative);
+            item.setFileHash(hash);
+            item.setFileSize(fileSize);
+            item.setFileMtimeMs(fileMtimeMs);
+
+            Map<String, String> meta = probeMediaMeta(p);
+            if (meta.get("width") != null) item.setWidth(parseInt(meta.get("width")));
+            if (meta.get("height") != null) item.setHeight(parseInt(meta.get("height")));
+            if (meta.get("codec_name") != null) item.setCodec(meta.get("codec_name"));
+            Integer durationSec = parseSeconds(meta.get("duration"));
+            if (durationSec != null) item.setDurationSec(durationSec);
+            String bitRate = meta.get("bit_rate");
+            if (bitRate != null) {
+                Integer bps = parseInt(bitRate);
+                if (bps != null) item.setBitrateKbps(Math.max(1, bps / 1000));
+            }
+
+            item.setUpdatedAt(LocalDateTime.now());
+            if (item.getCreatedAt() == null) item.setCreatedAt(LocalDateTime.now());
+
+            if (item.getId() == null) mediaItemMapper.insert(item);
+            else mediaItemMapper.updateById(item);
+
+            Path posterPath = posterRoot.resolve(item.getId() + ".jpg");
+            if (!Files.exists(posterPath)) {
+                boolean tmdbOk = downloadPosterFromTmdb(item.getTitle(), posterPath);
+                if (!tmdbOk) {
+                    extractPoster(p, posterPath);
+                }
+            }
+            if (Files.exists(posterPath)) {
+                item.setPosterUrl("/api/media/" + item.getId() + "/poster");
+                mediaItemMapper.updateById(item);
+            }
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     private String sha256(Path file) {

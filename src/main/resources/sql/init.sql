@@ -18,12 +18,14 @@ CREATE TABLE IF NOT EXISTS media_items (
     bitrate_kbps INT,
     poster_url VARCHAR(255),
     file_hash VARCHAR(64),
+    file_mtime_ms BIGINT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 ALTER TABLE media_items ADD COLUMN IF NOT EXISTS poster_url VARCHAR(255);
 ALTER TABLE media_items ADD COLUMN IF NOT EXISTS file_hash VARCHAR(64);
+ALTER TABLE media_items ADD COLUMN IF NOT EXISTS file_mtime_ms BIGINT;
 ALTER TABLE media_items ADD COLUMN IF NOT EXISTS bitrate_kbps INT;
 
 CREATE TABLE IF NOT EXISTS playback_progress (
