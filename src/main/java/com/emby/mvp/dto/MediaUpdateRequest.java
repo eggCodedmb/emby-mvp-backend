@@ -26,6 +26,6 @@ public class MediaUpdateRequest {
     @Min(0)
     private Integer bitrateKbps;
 
-    @Size(max = 255)
+    // allow null explicitly; when present, length will be validated in service
     private String posterUrl;
 }

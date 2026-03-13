@@ -49,7 +49,13 @@ public class MediaServiceImpl implements MediaService {
         item.setHeight(request.getHeight());
         item.setDurationSec(request.getDurationSec());
         item.setBitrateKbps(request.getBitrateKbps());
-        item.setPosterUrl(normalizeNullable(request.getPosterUrl()));
+
+        String posterUrl = normalizeNullable(request.getPosterUrl());
+        if (posterUrl != null && posterUrl.length() > 255) {
+            throw new BizException(4002, "posterUrl too long");
+        }
+        item.setPosterUrl(posterUrl);
+
         item.setUpdatedAt(LocalDateTime.now());
 
         int affected = mediaItemMapper.updateById(item);
