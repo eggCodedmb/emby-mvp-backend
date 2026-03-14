@@ -5,7 +5,7 @@ import com.emby.mvp.dto.MediaUpdateRequest;
 import com.emby.mvp.entity.MediaItem;
 
 public interface MediaService {
-    Page<MediaItem> page(int page, int size);
+    Page<MediaItem> page(int page, int size, String keyword);
     MediaItem getById(Long id);
     MediaItem update(Long id, MediaUpdateRequest request);
     void delete(Long id);

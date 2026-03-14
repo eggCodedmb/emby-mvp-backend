@@ -25,8 +25,13 @@ public class MediaServiceImpl implements MediaService {
     }
 
     @Override
-    public Page<MediaItem> page(int page, int size) {
-        return mediaItemMapper.selectPage(new Page<>(page, size), null);
+    public Page<MediaItem> page(int page, int size, String keyword) {
+        var wrapper = new LambdaQueryWrapper<MediaItem>();
+        if (keyword != null && !keyword.trim().isEmpty()) {
+            wrapper.like(MediaItem::getTitle, keyword.trim());
+        }
+        wrapper.orderByDesc(MediaItem::getUpdatedAt).orderByDesc(MediaItem::getId);
+        return mediaItemMapper.selectPage(new Page<>(page, size), wrapper);
     }
 
     @Override

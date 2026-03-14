@@ -26,8 +26,9 @@ public class MediaController {
 
     @GetMapping
     public ApiResponse<Page<MediaItem>> list(@RequestParam(defaultValue = "1") int page,
-                                             @RequestParam(defaultValue = "20") int size) {
-        return ApiResponse.ok(mediaService.page(page, size));
+                                             @RequestParam(defaultValue = "20") int size,
+                                             @RequestParam(required = false) String keyword) {
+        return ApiResponse.ok(mediaService.page(page, size, keyword));
     }
 
     @GetMapping("/{id}")
