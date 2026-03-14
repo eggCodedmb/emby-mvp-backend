@@ -47,6 +47,54 @@ CREATE TABLE IF NOT EXISTS library_scan_jobs (
     fail_count INT DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS user_favorite (
+    id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL REFERENCES users(id),
+    media_id BIGINT NOT NULL REFERENCES media_items(id),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uk_user_favorite_user_media UNIQUE (user_id, media_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_favorite_user_created
+    ON user_favorite(user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS user_watch_history (
+    id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL REFERENCES users(id),
+    media_id BIGINT NOT NULL REFERENCES media_items(id),
+    last_position_sec INT NOT NULL DEFAULT 0,
+    duration_sec INT,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uk_user_watch_history_user_media UNIQUE (user_id, media_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_watch_history_user_updated
+    ON user_watch_history(user_id, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS user_feedback (
+    id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL REFERENCES users(id),
+    media_id BIGINT REFERENCES media_items(id),
+    type VARCHAR(32) NOT NULL DEFAULT 'other',
+    content TEXT NOT NULL,
+    contact VARCHAR(128),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_feedback_user_created
+    ON user_feedback(user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS user_share_log (
+    id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL REFERENCES users(id),
+    media_id BIGINT NOT NULL REFERENCES media_items(id),
+    channel VARCHAR(32) NOT NULL DEFAULT 'copy_link',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_share_log_user_created
+    ON user_share_log(user_id, created_at DESC);
+
 CREATE TABLE IF NOT EXISTS operation_logs (
     id BIGSERIAL PRIMARY KEY,
     type VARCHAR(32) NOT NULL,
