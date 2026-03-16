@@ -58,6 +58,9 @@ public class JavMetadataServiceImpl {
     @Value("${app.media.poster-dir}")
     private String posterDir;
 
+    @Value("${app.media.actor-dir:E:/Media/actors}")
+    private String actorDir;
+
     @Value("${app.jav-meta.base-url:https://tools.miku.ac}")
     private String baseUrl;
 
@@ -285,7 +288,9 @@ public class JavMetadataServiceImpl {
     private Long syncActors(Long mediaId, Map<String, Object> infoData) {
         mediaActorMapper.delete(new LambdaQueryWrapper<MediaActor>().eq(MediaActor::getMediaId, mediaId));
 
-        List<Map<String, Object>> actors = asMapList(infoData.get("actor"));
+        List<Map<String, Object>> actors = new ArrayList<>();
+        actors.addAll(asMapList(infoData.get("actor")));
+        actors.addAll(asMapList(infoData.get("actors")));
         Set<String> seenNames = new HashSet<>();
         Set<Long> linkedActorIds = new HashSet<>();
         Long firstActorId = null;
@@ -303,12 +308,27 @@ public class JavMetadataServiceImpl {
                 actor.setName(normalizedName);
                 actor.setCreatedAt(LocalDateTime.now());
             }
-            String avatar = normalizeUrl(asString(row.get("avatar")));
-            if (avatar != null && !avatar.isBlank()) actor.setAvatarUrl(avatar);
+            String avatar = firstNonBlank(
+                    asString(row.get("avatar")),
+                    asString(row.get("avatarUrl")),
+                    asString(row.get("avatar_url")),
+                    asString(row.get("photo")),
+                    asString(row.get("image"))
+            );
+            avatar = normalizeUrl(avatar);
             actor.setUpdatedAt(LocalDateTime.now());
 
             if (actor.getId() == null) actorMapper.insert(actor);
             else actorMapper.updateById(actor);
+
+            if (avatar != null && !avatar.isBlank() && actor.getId() != null) {
+                String localAvatarPath = downloadActorAvatar(actor.getId(), avatar);
+                if (localAvatarPath != null) {
+                    actor.setAvatarUrl(localAvatarPath);
+                    actor.setUpdatedAt(LocalDateTime.now());
+                    actorMapper.updateById(actor);
+                }
+            }
 
             if (actor.getId() != null && linkedActorIds.add(actor.getId())) {
                 MediaActor rel = new MediaActor();
@@ -381,6 +401,32 @@ public class JavMetadataServiceImpl {
             logService.write("JAV_META", "封面下载异常 mediaId=" + mediaId + ", type="
                     + e.getClass().getSimpleName() + ", msg=" + e.getMessage());
             return false;
+        }
+    }
+
+    private String downloadActorAvatar(Long actorId, String avatarUrl) {
+        if (actorId == null || avatarUrl == null || avatarUrl.isBlank()) return null;
+
+        try {
+            ResponseEntity<byte[]> resp = restTemplate.exchange(avatarUrl, HttpMethod.GET, HttpEntity.EMPTY, byte[].class);
+            if (!resp.getStatusCode().is2xxSuccessful()) {
+                logService.write("JAV_META", "演员头像下载失败 actorId=" + actorId + ", status=" + resp.getStatusCode());
+                return null;
+            }
+            byte[] bytes = resp.getBody();
+            if (bytes == null || bytes.length == 0) return null;
+
+            String ext = resolvePosterExtension(avatarUrl, resp.getHeaders().getContentType());
+            Path root = Paths.get(actorDir).toAbsolutePath().normalize();
+            Files.createDirectories(root);
+            cleanupOldPosterFiles(root, actorId, ext);
+            Path file = root.resolve(actorId + ext);
+            Files.write(file, bytes);
+            return file.toString().replace('\\', '/');
+        } catch (Exception e) {
+            logService.write("JAV_META", "演员头像下载异常 actorId=" + actorId + ", type="
+                    + e.getClass().getSimpleName() + ", msg=" + e.getMessage());
+            return null;
         }
     }
 
@@ -530,6 +576,14 @@ public class JavMetadataServiceImpl {
         } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
         }
+    }
+
+    private String firstNonBlank(String... values) {
+        if (values == null) return null;
+        for (String value : values) {
+            if (value != null && !value.isBlank()) return value.trim();
+        }
+        return null;
     }
 
     private String asString(Object o) {

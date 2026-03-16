@@ -100,7 +100,9 @@ public class MediaServiceImpl implements MediaService {
                     Map<String, Object> m = new LinkedHashMap<>();
                     m.put("id", a.getId());
                     m.put("name", a.getName());
-                    m.put("avatarUrl", a.getAvatarUrl());
+                    m.put("avatarUrl", a.getAvatarUrl() == null || a.getAvatarUrl().isBlank()
+                            ? null
+                            : "/api/media/actors/" + a.getId() + "/avatar");
                     return m;
                 })
                 .filter(a -> a.get("name") != null && !a.get("name").toString().trim().isEmpty())

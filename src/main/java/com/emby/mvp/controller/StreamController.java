@@ -1,8 +1,10 @@
 package com.emby.mvp.controller;
 
 import com.emby.mvp.common.BizException;
+import com.emby.mvp.entity.Actor;
 import com.emby.mvp.entity.MediaItem;
 import com.emby.mvp.entity.MediaSubtitle;
+import com.emby.mvp.mapper.ActorMapper;
 import com.emby.mvp.service.MediaService;
 import com.emby.mvp.service.SubtitleService;
 import com.emby.mvp.service.impl.JavMetadataServiceImpl;
@@ -36,13 +38,16 @@ public class StreamController {
     private final MediaService mediaService;
     private final SubtitleService subtitleService;
     private final JavMetadataServiceImpl javMetadataService;
+    private final ActorMapper actorMapper;
 
     public StreamController(MediaService mediaService,
                             SubtitleService subtitleService,
-                            JavMetadataServiceImpl javMetadataService) {
+                            JavMetadataServiceImpl javMetadataService,
+                            ActorMapper actorMapper) {
         this.mediaService = mediaService;
         this.subtitleService = subtitleService;
         this.javMetadataService = javMetadataService;
+        this.actorMapper = actorMapper;
     }
 
     @GetMapping("/{id}/poster")
@@ -59,6 +64,28 @@ public class StreamController {
         else response.setContentType(MediaType.IMAGE_JPEG_VALUE);
 
         Files.copy(poster, response.getOutputStream());
+        response.flushBuffer();
+    }
+
+    @GetMapping("/actors/{actorId}/avatar")
+    public void actorAvatar(@PathVariable Long actorId, HttpServletResponse response) throws IOException {
+        Actor actor = actorMapper.selectById(actorId);
+        if (actor == null || actor.getAvatarUrl() == null || actor.getAvatarUrl().isBlank()) {
+            throw new BizException(4049, "actor avatar not found");
+        }
+        Path file = Paths.get(actor.getAvatarUrl()).toAbsolutePath().normalize();
+        if (!Files.exists(file)) {
+            throw new BizException(4049, "actor avatar not found");
+        }
+
+        String name = file.getFileName().toString().toLowerCase();
+        if (name.endsWith(".png")) response.setContentType(MediaType.IMAGE_PNG_VALUE);
+        else if (name.endsWith(".webp")) response.setContentType("image/webp");
+        else if (name.endsWith(".gif")) response.setContentType(MediaType.IMAGE_GIF_VALUE);
+        else if (name.endsWith(".bmp")) response.setContentType("image/bmp");
+        else response.setContentType(MediaType.IMAGE_JPEG_VALUE);
+
+        Files.copy(file, response.getOutputStream());
         response.flushBuffer();
     }
 
