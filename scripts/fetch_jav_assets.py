@@ -222,17 +222,28 @@ def main():
             print(f"[SKIP] code={code} data为空")
             continue
 
-        # 封面
+        # 封面（cover 失败时回退 preview[0]）
         cover_url = normalize_url(base_url, data.get("cover"))
+        cover_candidates: List[str] = []
         if cover_url:
-            res = download_binary(session, cover_url)
-            if res:
-                content, ct = res
-                ext = ext_from_url_or_ct(cover_url, ct)
-                stem = str(media_id)
-                clean_old_variants(poster_dir, stem)
-                (poster_dir / f"{stem}{ext}").write_bytes(content)
-                ok_cover += 1
+            cover_candidates.append(cover_url)
+        previews = data.get("preview")
+        if isinstance(previews, list) and previews:
+            p0 = normalize_url(base_url, str(previews[0]))
+            if p0:
+                cover_candidates.append(p0)
+
+        for cu in cover_candidates:
+            res = download_binary(session, cu)
+            if not res:
+                continue
+            content, ct = res
+            ext = ext_from_url_or_ct(cu, ct)
+            stem = str(media_id)
+            clean_old_variants(poster_dir, stem)
+            (poster_dir / f"{stem}{ext}").write_bytes(content)
+            ok_cover += 1
+            break
 
         # 演员头像
         actors = data.get("actor")
