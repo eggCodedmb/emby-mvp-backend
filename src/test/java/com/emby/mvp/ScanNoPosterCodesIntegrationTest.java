@@ -99,5 +99,22 @@ class ScanNoPosterCodesIntegrationTest {
 
         Assertions.assertEquals(items.size(), total, "total 应等于本次提交扫描条数");
         Assertions.assertEquals(total, success + failed, "success + failed 应等于 total");
+
+        // 严格断言：每条都必须补到封面（否则判失败）
+        List<Long> notCompleted = targets.stream()
+                .map(MediaItem::getId)
+                .filter(id -> {
+                    MediaItem after = mediaItemMapper.selectById(id);
+                    if (after == null) return true;
+                    String poster = after.getPosterUrl();
+                    String title = after.getTitle();
+                    return poster == null || poster.isBlank() || title == null || title.isBlank();
+                })
+                .collect(Collectors.toList());
+
+        Assertions.assertTrue(
+                notCompleted.isEmpty(),
+                "以下 mediaId 未拿到完整元数据(title/posterUrl): " + notCompleted
+        );
     }
 }
