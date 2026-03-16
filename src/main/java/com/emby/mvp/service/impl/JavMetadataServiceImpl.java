@@ -176,7 +176,14 @@ public class JavMetadataServiceImpl {
         if (code == null) return false;
 
         Map<String, Object> infoData = fetchInfoData(code);
-        if (infoData == null) return false;
+        if (infoData == null) {
+            // 降级：第三方元数据源不可用时，至少回填识别码，避免整批扫描全部失败
+            item.setCode(code);
+            item.setUpdatedAt(LocalDateTime.now());
+            mediaItemMapper.updateById(item);
+            logService.write("JAV_META", "降级写入 code=" + code + ", mediaId=" + item.getId());
+            return true;
+        }
 
         String apiTitle = asString(infoData.get("title"));
         if (apiTitle != null && !apiTitle.isBlank()) {
