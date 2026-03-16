@@ -76,6 +76,10 @@ public class SettingsController {
         boolean scanAll = req == null || req.getScanAll() == null || req.getScanAll();
         String scanField = req == null ? null : req.getScanField();
 
+        if (req != null && req.getItems() != null && !req.getItems().isEmpty()) {
+            return ApiResponse.ok(javMetadataService.scanAndSaveByItems(req.getItems()));
+        }
+
         if (!scanAll && req != null && req.getMediaIds() != null && !req.getMediaIds().isEmpty()) {
             return ApiResponse.ok(javMetadataService.scanAndSaveByIds(req.getMediaIds(), scanField));
         }

@@ -1,6 +1,7 @@
 package com.emby.mvp.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.emby.mvp.dto.MetadataScanItemRequest;
 import com.emby.mvp.entity.Actor;
 import com.emby.mvp.entity.Category;
 import com.emby.mvp.entity.MediaActor;
@@ -93,6 +94,37 @@ public class JavMetadataServiceImpl {
         return scanItems(items, scanField);
     }
 
+    public Map<String, Integer> scanAndSaveByItems(List<MetadataScanItemRequest> items) {
+        if (items == null || items.isEmpty()) {
+            return Map.of("total", 0, "success", 0, "failed", 0);
+        }
+
+        AtomicInteger ok = new AtomicInteger();
+        AtomicInteger fail = new AtomicInteger();
+        for (MetadataScanItemRequest req : items) {
+            if (req == null || req.getMediaId() == null) {
+                fail.incrementAndGet();
+                continue;
+            }
+            MediaItem item = mediaItemMapper.selectById(req.getMediaId());
+            if (item == null) {
+                fail.incrementAndGet();
+                continue;
+            }
+            try {
+                if (enrichFromJavApi(item, req.getScanField())) ok.incrementAndGet();
+                else fail.incrementAndGet();
+            } catch (Exception e) {
+                fail.incrementAndGet();
+            }
+        }
+        return Map.of(
+                "total", items.size(),
+                "success", ok.get(),
+                "failed", fail.get()
+        );
+    }
+
     public List<Map<String, Object>> listScanCandidates(int limit) {
         int realLimit = Math.max(1, Math.min(limit, 1000));
         List<MediaItem> items = mediaItemMapper.selectList(new LambdaQueryWrapper<MediaItem>()
@@ -102,10 +134,12 @@ public class JavMetadataServiceImpl {
 
         List<Map<String, Object>> out = new ArrayList<>();
         for (MediaItem item : items) {
+            boolean hasCode = item.getCode() != null && !item.getCode().isBlank();
             out.add(Map.of(
                     "id", item.getId(),
                     "title", item.getTitle() == null ? "" : item.getTitle(),
-                    "code", item.getCode() == null ? "" : item.getCode()
+                    "code", item.getCode() == null ? "" : item.getCode(),
+                    "defaultScanField", hasCode ? "code" : "title"
             ));
         }
         return out;
