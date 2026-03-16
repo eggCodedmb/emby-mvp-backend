@@ -32,8 +32,8 @@ public class MediaController {
     }
 
     @GetMapping("/{id}")
-    public ApiResponse<MediaItem> detail(@PathVariable Long id) {
-        return ApiResponse.ok(mediaService.getById(id));
+    public ApiResponse<java.util.Map<String, Object>> detail(@PathVariable Long id) {
+        return ApiResponse.ok(mediaService.getDetail(id));
     }
 
     @PutMapping("/{id}")
