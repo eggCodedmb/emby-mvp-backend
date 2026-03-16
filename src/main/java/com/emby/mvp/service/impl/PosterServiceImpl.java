@@ -8,8 +8,6 @@ import com.emby.mvp.service.PosterService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestTemplate;
-import org.springframework.web.util.UriComponentsBuilder;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -23,23 +21,18 @@ import java.util.concurrent.atomic.AtomicInteger;
 @Service
 public class PosterServiceImpl implements PosterService {
     private final MediaItemMapper mediaItemMapper;
+    private final JavMetadataServiceImpl javMetadataService;
 
     @Value("${app.media.poster-dir}")
     private String posterDir;
 
-    @Value("${app.tmdb.api-key:}")
-    private String tmdbApiKey;
-
-    @Value("${app.tmdb.image-base-url:https://image.tmdb.org/t/p/w500}")
-    private String tmdbImageBaseUrl;
-
-    private final RestTemplate restTemplate = new RestTemplate();
 
     private final AtomicBoolean autoEnabled = new AtomicBoolean(false);
     private final AtomicInteger intervalMinutes = new AtomicInteger(60);
 
-    public PosterServiceImpl(MediaItemMapper mediaItemMapper) {
+    public PosterServiceImpl(MediaItemMapper mediaItemMapper, JavMetadataServiceImpl javMetadataService) {
         this.mediaItemMapper = mediaItemMapper;
+        this.javMetadataService = javMetadataService;
     }
 
     @Override
@@ -62,12 +55,14 @@ public class PosterServiceImpl implements PosterService {
         int success = 0;
         for (MediaItem item : items) {
             try {
-                if (downloadPosterFromTmdb(item.getTitle(), posterRoot.resolve(item.getId() + ".jpg"))) {
-                    item.setPosterUrl("/api/media/" + item.getId() + "/poster");
-                    item.setUpdatedAt(LocalDateTime.now());
-                    mediaItemMapper.updateById(item);
-                    success++;
+                boolean ok = javMetadataService.enrichFromJavApi(item);
+                if (!ok && javMetadataService.resolvePosterPath(item.getId()) == null) {
+                    continue;
                 }
+                item.setPosterUrl("/api/media/" + item.getId() + "/poster");
+                item.setUpdatedAt(LocalDateTime.now());
+                mediaItemMapper.updateById(item);
+                success++;
             } catch (Exception ignored) {}
         }
         return success;
@@ -96,34 +91,4 @@ public class PosterServiceImpl implements PosterService {
         fetchMissing(20);
     }
 
-    private boolean downloadPosterFromTmdb(String title, Path posterPath) {
-        try {
-            if (tmdbApiKey == null || tmdbApiKey.isBlank()) return false;
-
-            String searchUrl = UriComponentsBuilder.fromHttpUrl("https://api.themoviedb.org/3/search/movie")
-                    .queryParam("api_key", tmdbApiKey)
-                    .queryParam("query", title)
-                    .queryParam("language", "zh-CN")
-                    .queryParam("include_adult", false)
-                    .build(true)
-                    .toUriString();
-
-            Map<?, ?> result = restTemplate.getForObject(searchUrl, Map.class);
-            if (result == null || result.get("results") == null) return false;
-
-            var list = (List<?>) result.get("results");
-            if (list.isEmpty()) return false;
-            var first = (Map<?, ?>) list.get(0);
-            Object posterPathObj = first.get("poster_path");
-            if (posterPathObj == null) return false;
-
-            String url = tmdbImageBaseUrl + posterPathObj.toString();
-            byte[] bytes = restTemplate.getForObject(url, byte[].class);
-            if (bytes == null || bytes.length == 0) return false;
-            Files.write(posterPath, bytes);
-            return true;
-        } catch (Exception e) {
-            return false;
-        }
-    }
 }

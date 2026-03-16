@@ -5,6 +5,7 @@ import com.emby.mvp.entity.MediaItem;
 import com.emby.mvp.entity.MediaSubtitle;
 import com.emby.mvp.service.MediaService;
 import com.emby.mvp.service.SubtitleService;
+import com.emby.mvp.service.impl.JavMetadataServiceImpl;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Value;
@@ -32,24 +33,31 @@ public class StreamController {
     @Value("${app.media.root-path}")
     private String mediaRoot;
 
-    @Value("${app.media.poster-dir}")
-    private String posterDir;
-
     private final MediaService mediaService;
     private final SubtitleService subtitleService;
+    private final JavMetadataServiceImpl javMetadataService;
 
-    public StreamController(MediaService mediaService, SubtitleService subtitleService) {
+    public StreamController(MediaService mediaService,
+                            SubtitleService subtitleService,
+                            JavMetadataServiceImpl javMetadataService) {
         this.mediaService = mediaService;
         this.subtitleService = subtitleService;
+        this.javMetadataService = javMetadataService;
     }
 
     @GetMapping("/{id}/poster")
     public void poster(@PathVariable Long id, HttpServletResponse response) throws IOException {
-        Path poster = Paths.get(posterDir).resolve(id + ".jpg").normalize().toAbsolutePath();
-        if (!Files.exists(poster)) {
+        Path poster = javMetadataService.resolvePosterPath(id);
+        if (poster == null || !Files.exists(poster)) {
             throw new BizException(4043, "poster not found");
         }
-        response.setContentType(MediaType.IMAGE_JPEG_VALUE);
+        String name = poster.getFileName().toString().toLowerCase();
+        if (name.endsWith(".png")) response.setContentType(MediaType.IMAGE_PNG_VALUE);
+        else if (name.endsWith(".webp")) response.setContentType("image/webp");
+        else if (name.endsWith(".gif")) response.setContentType(MediaType.IMAGE_GIF_VALUE);
+        else if (name.endsWith(".bmp")) response.setContentType("image/bmp");
+        else response.setContentType(MediaType.IMAGE_JPEG_VALUE);
+
         Files.copy(poster, response.getOutputStream());
         response.flushBuffer();
     }
@@ -64,17 +72,25 @@ public class StreamController {
         if (!isAdmin) throw new BizException(4030, "forbidden");
 
         java.util.List<String> preferredLangs;
+        String langCode;
         if (lang == null || lang.isBlank()) {
-            preferredLangs = java.util.Arrays.asList("Chinese (Simplified)", "Chinese (Traditional)", "Mandarin", "Chinese", "English");
+            langCode = "AUTO";
+            preferredLangs = java.util.Arrays.asList("Chinese (Simplified)", "Chinese (Traditional)", "Mandarin", "Chinese", "English", "Japanese", "日本語");
         } else if ("zh".equalsIgnoreCase(lang) || "zh-CN".equalsIgnoreCase(lang) || "cn".equalsIgnoreCase(lang)) {
-            preferredLangs = java.util.Arrays.asList("Chinese (Simplified)", "Chinese (Traditional)", "Mandarin", "Chinese", "English");
+            langCode = "ZH";
+            preferredLangs = java.util.Arrays.asList("Chinese (Simplified)", "Chinese (Traditional)", "Mandarin", "Chinese", "English", "Japanese", "日本語");
         } else if ("en".equalsIgnoreCase(lang) || "en-US".equalsIgnoreCase(lang)) {
-            preferredLangs = java.util.Arrays.asList("English", "Chinese (Simplified)", "Chinese (Traditional)", "Mandarin", "Chinese");
+            langCode = "EN";
+            preferredLangs = java.util.Arrays.asList("English", "Chinese (Simplified)", "Chinese (Traditional)", "Mandarin", "Chinese", "Japanese", "日本語");
+        } else if ("ja".equalsIgnoreCase(lang) || "ja-JP".equalsIgnoreCase(lang) || "jp".equalsIgnoreCase(lang)) {
+            langCode = "JA";
+            preferredLangs = java.util.Arrays.asList("Japanese", "日本語", "English", "Chinese (Simplified)", "Chinese (Traditional)", "Mandarin", "Chinese");
         } else {
-            preferredLangs = java.util.Arrays.asList(lang, "Chinese (Simplified)", "Chinese (Traditional)", "Mandarin", "Chinese", "English");
+            langCode = lang.toUpperCase();
+            preferredLangs = java.util.Arrays.asList(lang, "English", "Chinese (Simplified)", "Chinese (Traditional)", "Mandarin", "Chinese", "Japanese", "日本語");
         }
 
-        MediaSubtitle subtitle = subtitleService.fetchOrDownload(id, title, preferredLangs);
+        MediaSubtitle subtitle = subtitleService.fetchOrDownload(id, title, preferredLangs, langCode);
         Path file = Paths.get(subtitle.getFilePath()).toAbsolutePath().normalize();
         if (!Files.exists(file)) throw new BizException(4048, "subtitle file not found");
 
