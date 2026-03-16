@@ -171,24 +171,40 @@ public class JavMetadataServiceImpl {
     }
 
     private Map<String, Object> fetchInfoData(String code) {
-        String url = UriComponentsBuilder.fromHttpUrl(baseUrl + "/api/t/jav-search/info")
-                .queryParam("id", code)
-                .queryParam("source", "jp")
-                .queryParam("type", "censored")
-                .build(true)
-                .toUriString();
-        try {
-            HttpHeaders headers = new HttpHeaders();
-            headers.set(HttpHeaders.USER_AGENT, "Mozilla/5.0");
-            ResponseEntity<Map> resp = restTemplate.exchange(url, HttpMethod.GET, new HttpEntity<>(headers), Map.class);
-            if (!resp.getStatusCode().is2xxSuccessful() || resp.getBody() == null) return null;
-            Object data = resp.getBody().get("data");
-            if (!(data instanceof Map<?, ?> dataMap)) return null;
-            return (Map<String, Object>) dataMap;
-        } catch (Exception e) {
-            logService.write("JAV_META", "抓取失败 code=" + code + ", msg=" + e.getMessage());
-            return null;
+        List<String> urls = List.of(
+                UriComponentsBuilder.fromHttpUrl(baseUrl + "/api/t/jav-search/info")
+                        .queryParam("id", code)
+                        .queryParam("source", "jp")
+                        .build(true)
+                        .toUriString(),
+                UriComponentsBuilder.fromHttpUrl(baseUrl + "/api/t/jav-search/info")
+                        .queryParam("id", code)
+                        .queryParam("source", "jp")
+                        .queryParam("type", "censored")
+                        .build(true)
+                        .toUriString()
+        );
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.set(HttpHeaders.USER_AGENT, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36");
+        headers.set(HttpHeaders.ACCEPT, "application/json,text/plain,*/*");
+        headers.set(HttpHeaders.ACCEPT_LANGUAGE, "zh-CN,zh;q=0.9,en;q=0.8");
+        headers.set(HttpHeaders.REFERER, "https://tools.miku.ac/");
+        headers.set(HttpHeaders.ORIGIN, "https://tools.miku.ac");
+
+        for (String url : urls) {
+            try {
+                ResponseEntity<Map> resp = restTemplate.exchange(url, HttpMethod.GET, new HttpEntity<>(headers), Map.class);
+                if (!resp.getStatusCode().is2xxSuccessful() || resp.getBody() == null) continue;
+                Object data = resp.getBody().get("data");
+                if (data instanceof Map<?, ?> dataMap) {
+                    return (Map<String, Object>) dataMap;
+                }
+            } catch (Exception e) {
+                logService.write("JAV_META", "抓取失败 code=" + code + ", url=" + url + ", msg=" + e.getMessage());
+            }
         }
+        return null;
     }
 
     private Long syncActors(Long mediaId, Map<String, Object> infoData) {
