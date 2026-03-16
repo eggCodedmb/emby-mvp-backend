@@ -4,8 +4,10 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.emby.mvp.common.ApiResponse;
 import com.emby.mvp.common.BizException;
 import com.emby.mvp.dto.AutoPosterConfigRequest;
+import com.emby.mvp.dto.MetadataScanRequest;
 import com.emby.mvp.entity.MediaItem;
 import com.emby.mvp.service.PosterService;
+import com.emby.mvp.service.impl.JavMetadataServiceImpl;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
@@ -15,9 +17,11 @@ import java.util.Map;
 @RequestMapping("/api/settings/posters")
 public class SettingsController {
     private final PosterService posterService;
+    private final JavMetadataServiceImpl javMetadataService;
 
-    public SettingsController(PosterService posterService) {
+    public SettingsController(PosterService posterService, JavMetadataServiceImpl javMetadataService) {
         this.posterService = posterService;
+        this.javMetadataService = javMetadataService;
     }
 
     private void checkAdmin(Authentication auth) {
@@ -54,5 +58,27 @@ public class SettingsController {
         int interval = req.getIntervalMinutes() == null ? 60 : req.getIntervalMinutes();
         posterService.updateAutoConfig(enabled, interval);
         return ApiResponse.ok();
+    }
+
+    @GetMapping("/metadata/candidates")
+    public ApiResponse<java.util.List<Map<String, Object>>> metadataCandidates(@RequestParam(defaultValue = "200") int limit,
+                                                                                Authentication auth) {
+        checkAdmin(auth);
+        return ApiResponse.ok(javMetadataService.listScanCandidates(limit));
+    }
+
+    @PostMapping("/metadata/scan")
+    public ApiResponse<Map<String, Integer>> scanMetadata(@RequestBody(required = false) MetadataScanRequest req,
+                                                          Authentication auth) {
+        checkAdmin(auth);
+
+        int limit = req == null || req.getLimit() == null ? 50 : req.getLimit();
+        boolean scanAll = req == null || req.getScanAll() == null || req.getScanAll();
+        String scanField = req == null ? null : req.getScanField();
+
+        if (!scanAll && req != null && req.getMediaIds() != null && !req.getMediaIds().isEmpty()) {
+            return ApiResponse.ok(javMetadataService.scanAndSaveByIds(req.getMediaIds(), scanField));
+        }
+        return ApiResponse.ok(javMetadataService.scanAndSave(limit, scanField));
     }
 }
