@@ -4,6 +4,10 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.emby.mvp.common.BizException;
 import com.emby.mvp.dto.MediaUpdateRequest;
+import com.emby.mvp.entity.Actor;
+import com.emby.mvp.entity.Category;
+import com.emby.mvp.entity.MediaActor;
+import com.emby.mvp.entity.MediaCategory;
 import com.emby.mvp.entity.MediaItem;
 import com.emby.mvp.entity.PlaybackProgress;
 import com.emby.mvp.mapper.ActorMapper;
@@ -48,8 +52,57 @@ public class MediaServiceImpl implements MediaService {
     @Override
     public Page<MediaItem> page(int page, int size, String keyword) {
         var wrapper = new LambdaQueryWrapper<MediaItem>();
-        if (keyword != null && !keyword.trim().isEmpty()) {
-            wrapper.like(MediaItem::getTitle, keyword.trim());
+        String trimmedKeyword = keyword == null ? "" : keyword.trim();
+        if (!trimmedKeyword.isEmpty()) {
+            List<Long> matchedCategoryIds = categoryMapper.selectList(new LambdaQueryWrapper<Category>()
+                            .select(Category::getId)
+                            .like(Category::getName, trimmedKeyword))
+                    .stream()
+                    .map(Category::getId)
+                    .filter(Objects::nonNull)
+                    .toList();
+
+            List<Long> matchedMediaIdsByCategory = matchedCategoryIds.isEmpty()
+                    ? List.of()
+                    : mediaCategoryMapper.selectList(new LambdaQueryWrapper<MediaCategory>()
+                                    .select(MediaCategory::getMediaId)
+                                    .in(MediaCategory::getCategoryId, matchedCategoryIds))
+                            .stream()
+                            .map(MediaCategory::getMediaId)
+                            .filter(Objects::nonNull)
+                            .distinct()
+                            .toList();
+
+            List<Long> matchedActorIds = actorMapper.selectList(new LambdaQueryWrapper<Actor>()
+                            .select(Actor::getId)
+                            .like(Actor::getName, trimmedKeyword))
+                    .stream()
+                    .map(Actor::getId)
+                    .filter(Objects::nonNull)
+                    .toList();
+
+            List<Long> matchedMediaIdsByActor = matchedActorIds.isEmpty()
+                    ? List.of()
+                    : mediaActorMapper.selectList(new LambdaQueryWrapper<MediaActor>()
+                                    .select(MediaActor::getMediaId)
+                                    .in(MediaActor::getActorId, matchedActorIds))
+                            .stream()
+                            .map(MediaActor::getMediaId)
+                            .filter(Objects::nonNull)
+                            .distinct()
+                            .toList();
+
+            wrapper.and(w -> {
+                w.like(MediaItem::getTitle, trimmedKeyword)
+                        .or()
+                        .like(MediaItem::getCode, trimmedKeyword);
+                if (!matchedMediaIdsByCategory.isEmpty()) {
+                    w.or().in(MediaItem::getId, matchedMediaIdsByCategory);
+                }
+                if (!matchedMediaIdsByActor.isEmpty()) {
+                    w.or().in(MediaItem::getId, matchedMediaIdsByActor);
+                }
+            });
         }
         wrapper.orderByDesc(MediaItem::getUpdatedAt).orderByDesc(MediaItem::getId);
         return mediaItemMapper.selectPage(new Page<>(page, size), wrapper);
@@ -100,9 +153,12 @@ public class MediaServiceImpl implements MediaService {
                     Map<String, Object> m = new LinkedHashMap<>();
                     m.put("id", a.getId());
                     m.put("name", a.getName());
-                    m.put("avatarUrl", a.getAvatarUrl() == null || a.getAvatarUrl().isBlank()
-                            ? null
-                            : "/api/media/actors/" + a.getId() + "/avatar");
+                    String avatar = a.getAvatarUrl();
+                    boolean localAvatar = avatar != null
+                            && !avatar.isBlank()
+                            && !avatar.startsWith("http://")
+                            && !avatar.startsWith("https://");
+                    m.put("avatarUrl", localAvatar ? "/api/media/actors/" + a.getId() + "/avatar" : null);
                     return m;
                 })
                 .filter(a -> a.get("name") != null && !a.get("name").toString().trim().isEmpty())
