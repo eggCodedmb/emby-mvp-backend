@@ -44,6 +44,7 @@ public class LibraryServiceImpl implements LibraryService {
     private final LibraryScanJobMapper jobMapper;
     private final MediaItemMapper mediaItemMapper;
     private final LogService logService;
+    private final JavMetadataServiceImpl javMetadataService;
 
     @Value("${app.media.root-path}")
     private String mediaRoot;
@@ -51,27 +52,22 @@ public class LibraryServiceImpl implements LibraryService {
     @Value("${app.media.poster-dir}")
     private String posterDir;
 
-    @Value("${app.tmdb.api-key:}")
-    private String tmdbApiKey;
 
-    @Value("${app.tmdb.image-base-url:https://image.tmdb.org/t/p/w500}")
-    private String tmdbImageBaseUrl;
-
-    private final RestTemplate restTemplate;
     private final ExecutorService scanExecutor = Executors.newSingleThreadExecutor();
     private final AtomicBoolean scanRunning = new AtomicBoolean(false);
 
     public LibraryServiceImpl(LibraryScanJobMapper jobMapper,
                               MediaItemMapper mediaItemMapper,
                               LogService logService,
+                              JavMetadataServiceImpl javMetadataService,
                               RestTemplateBuilder restTemplateBuilder) {
         this.jobMapper = jobMapper;
         this.mediaItemMapper = mediaItemMapper;
         this.logService = logService;
-        this.restTemplate = restTemplateBuilder
+        this.javMetadataService = javMetadataService;
+        restTemplateBuilder
                 .setConnectTimeout(Duration.ofSeconds(3))
-                .setReadTimeout(Duration.ofSeconds(8))
-                .build();
+                .setReadTimeout(Duration.ofSeconds(8));
     }
 
     @Override
@@ -264,17 +260,7 @@ public class LibraryServiceImpl implements LibraryService {
             if (item.getId() == null) mediaItemMapper.insert(item);
             else mediaItemMapper.updateById(item);
 
-            Path posterPath = posterRoot.resolve(item.getId() + ".jpg");
-            if (!Files.exists(posterPath)) {
-                boolean tmdbOk = downloadPosterFromTmdb(item.getTitle(), posterPath);
-                if (!tmdbOk) {
-                    extractPoster(p, posterPath);
-                }
-            }
-            if (Files.exists(posterPath)) {
-                item.setPosterUrl("/api/media/" + item.getId() + "/poster");
-                mediaItemMapper.updateById(item);
-            }
+            javMetadataService.enrichFromJavApi(item);
             return true;
         } catch (Exception e) {
             return false;
@@ -345,37 +331,6 @@ public class LibraryServiceImpl implements LibraryService {
         int dot = fileName.lastIndexOf('.');
         if (dot > 0) return fileName.substring(0, dot);
         return fileName;
-    }
-
-    private boolean downloadPosterFromTmdb(String title, Path posterPath) {
-        try {
-            if (tmdbApiKey == null || tmdbApiKey.isBlank()) return false;
-
-            String searchUrl = UriComponentsBuilder.fromHttpUrl("https://api.themoviedb.org/3/search/movie")
-                    .queryParam("api_key", tmdbApiKey)
-                    .queryParam("query", title)
-                    .queryParam("language", "zh-CN")
-                    .queryParam("include_adult", false)
-                    .build(true)
-                    .toUriString();
-
-            Map<?, ?> result = restTemplate.getForObject(searchUrl, Map.class);
-            if (result == null || result.get("results") == null) return false;
-
-            var list = (java.util.List<?>) result.get("results");
-            if (list.isEmpty()) return false;
-            var first = (Map<?, ?>) list.get(0);
-            Object posterPathObj = first.get("poster_path");
-            if (posterPathObj == null) return false;
-
-            String url = tmdbImageBaseUrl + posterPathObj.toString();
-            byte[] bytes = restTemplate.getForObject(url, byte[].class);
-            if (bytes == null || bytes.length == 0) return false;
-            Files.write(posterPath, bytes);
-            return true;
-        } catch (Exception e) {
-            return false;
-        }
     }
 
     private void extractPoster(Path mediaPath, Path posterPath) {

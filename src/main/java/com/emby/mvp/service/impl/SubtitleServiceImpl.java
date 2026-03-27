@@ -58,11 +58,17 @@ public class SubtitleServiceImpl implements SubtitleService {
     }
 
     @Override
-    public MediaSubtitle fetchOrDownload(Long mediaId, String title, List<String> preferredLangs) {
+    public MediaSubtitle fetchOrDownload(Long mediaId, String title, List<String> preferredLangs, String langCode) {
         MediaItem media = mediaService.getById(mediaId);
 
-        MediaSubtitle existing = mediaSubtitleMapper.selectOne(new LambdaQueryWrapper<MediaSubtitle>()
-                .eq(MediaSubtitle::getMediaId, mediaId)
+        String requestedLang = normalizeRequestedLang(langCode);
+
+        LambdaQueryWrapper<MediaSubtitle> query = new LambdaQueryWrapper<MediaSubtitle>()
+                .eq(MediaSubtitle::getMediaId, mediaId);
+        if (!"AUTO".equals(requestedLang)) {
+            query.eq(MediaSubtitle::getLanguage, requestedLang);
+        }
+        MediaSubtitle existing = mediaSubtitleMapper.selectOne(query
                 .orderByDesc(MediaSubtitle::getUpdatedAt)
                 .last("limit 1"));
 
@@ -93,7 +99,7 @@ public class SubtitleServiceImpl implements SubtitleService {
             subtitle.setMediaId(mediaId);
             subtitle.setVideoTitle(titleToUse);
             subtitle.setCode(code);
-            subtitle.setLanguage(result.language == null ? "UNKNOWN" : result.language);
+            subtitle.setLanguage(resolveLanguage(result.language, requestedLang));
             subtitle.setFilePath(filePath.toString());
             subtitle.setUpdatedAt(LocalDateTime.now());
             if (subtitle.getCreatedAt() == null) subtitle.setCreatedAt(LocalDateTime.now());
@@ -248,8 +254,29 @@ public class SubtitleServiceImpl implements SubtitleService {
 
     private String detectLanguage(String text) {
         String lower = text == null ? "" : text.toLowerCase(Locale.ROOT);
+        if (lower.contains("japanese") || lower.contains("日本") || lower.contains("\u65e5\u8a9e") || lower.contains(" ja") || lower.endsWith("ja")) return "JA";
         if (lower.contains("chinese") || lower.contains("mandarin") || lower.contains("zh")) return "ZH";
         if (lower.contains("english") || lower.contains("en")) return "EN";
+        return "UNKNOWN";
+    }
+
+    private String normalizeRequestedLang(String langCode) {
+        String code = langCode == null ? "AUTO" : langCode.trim().toUpperCase(Locale.ROOT);
+        if (code.isEmpty()) return "AUTO";
+        if (code.startsWith("ZH") || "CN".equals(code)) return "ZH";
+        if (code.startsWith("EN")) return "EN";
+        if (code.startsWith("JA") || "JP".equals(code)) return "JA";
+        if ("AUTO".equals(code)) return "AUTO";
+        return code;
+    }
+
+    private String resolveLanguage(String detected, String requestedLang) {
+        if (detected != null && !detected.isBlank() && !"UNKNOWN".equalsIgnoreCase(detected)) {
+            return detected.toUpperCase(Locale.ROOT);
+        }
+        if (requestedLang != null && !requestedLang.isBlank() && !"AUTO".equalsIgnoreCase(requestedLang)) {
+            return requestedLang.toUpperCase(Locale.ROOT);
+        }
         return "UNKNOWN";
     }
 

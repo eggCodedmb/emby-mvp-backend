@@ -308,14 +308,7 @@ public class JavMetadataServiceImpl {
                 actor.setName(normalizedName);
                 actor.setCreatedAt(LocalDateTime.now());
             }
-            String avatar = firstNonBlank(
-                    asString(row.get("avatar")),
-                    asString(row.get("avatarUrl")),
-                    asString(row.get("avatar_url")),
-                    asString(row.get("photo")),
-                    asString(row.get("image"))
-            );
-            avatar = normalizeUrl(avatar);
+            String avatar = normalizeUrl(extractAvatarFromActorRow(row));
             actor.setUpdatedAt(LocalDateTime.now());
 
             if (actor.getId() == null) actorMapper.insert(actor);
@@ -327,7 +320,17 @@ public class JavMetadataServiceImpl {
                     actor.setAvatarUrl(localAvatarPath);
                     actor.setUpdatedAt(LocalDateTime.now());
                     actorMapper.updateById(actor);
+                } else {
+                    logService.write("JAV_META", "演员头像下载失败 actorId=" + actor.getId() + ", name=" + normalizedName + ", avatarUrl=" + avatar);
+                    if (actor.getAvatarUrl() != null
+                            && (actor.getAvatarUrl().startsWith("http://") || actor.getAvatarUrl().startsWith("https://"))) {
+                        actor.setAvatarUrl(null);
+                        actor.setUpdatedAt(LocalDateTime.now());
+                        actorMapper.updateById(actor);
+                    }
                 }
+            } else {
+                logService.write("JAV_META", "演员缺少头像URL actorName=" + normalizedName + ", mediaId=" + mediaId);
             }
 
             if (actor.getId() != null && linkedActorIds.add(actor.getId())) {
@@ -407,27 +410,40 @@ public class JavMetadataServiceImpl {
     private String downloadActorAvatar(Long actorId, String avatarUrl) {
         if (actorId == null || avatarUrl == null || avatarUrl.isBlank()) return null;
 
-        try {
-            ResponseEntity<byte[]> resp = restTemplate.exchange(avatarUrl, HttpMethod.GET, HttpEntity.EMPTY, byte[].class);
-            if (!resp.getStatusCode().is2xxSuccessful()) {
-                logService.write("JAV_META", "演员头像下载失败 actorId=" + actorId + ", status=" + resp.getStatusCode());
-                return null;
-            }
-            byte[] bytes = resp.getBody();
-            if (bytes == null || bytes.length == 0) return null;
+        HttpHeaders headers = new HttpHeaders();
+        headers.set(HttpHeaders.USER_AGENT, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36");
+        headers.set(HttpHeaders.ACCEPT, "image/avif,image/webp,image/apng,image/*,*/*;q=0.8");
+        headers.set(HttpHeaders.ACCEPT_LANGUAGE, "zh-CN,zh;q=0.9,en;q=0.8");
+        headers.set(HttpHeaders.REFERER, "https://tools.miku.ac/");
+        headers.set(HttpHeaders.ORIGIN, "https://tools.miku.ac");
 
-            String ext = resolvePosterExtension(avatarUrl, resp.getHeaders().getContentType());
-            Path root = Paths.get(actorDir).toAbsolutePath().normalize();
-            Files.createDirectories(root);
-            cleanupOldPosterFiles(root, actorId, ext);
-            Path file = root.resolve(actorId + ext);
-            Files.write(file, bytes);
-            return file.toString().replace('\\', '/');
-        } catch (Exception e) {
-            logService.write("JAV_META", "演员头像下载异常 actorId=" + actorId + ", type="
-                    + e.getClass().getSimpleName() + ", msg=" + e.getMessage());
-            return null;
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            try {
+                ResponseEntity<byte[]> resp = restTemplate.exchange(avatarUrl, HttpMethod.GET, new HttpEntity<>(headers), byte[].class);
+                if (!resp.getStatusCode().is2xxSuccessful()) {
+                    logService.write("JAV_META", "演员头像下载失败 actorId=" + actorId + ", attempt=" + attempt + ", status=" + resp.getStatusCode() + ", url=" + avatarUrl);
+                    continue;
+                }
+                byte[] bytes = resp.getBody();
+                if (bytes == null || bytes.length == 0) {
+                    logService.write("JAV_META", "演员头像空内容 actorId=" + actorId + ", attempt=" + attempt + ", url=" + avatarUrl);
+                    continue;
+                }
+
+                String ext = resolvePosterExtension(avatarUrl, resp.getHeaders().getContentType());
+                Path root = Paths.get(actorDir).toAbsolutePath().normalize();
+                Files.createDirectories(root);
+                cleanupOldPosterFiles(root, actorId, ext);
+                Path file = root.resolve(actorId + ext);
+                Files.write(file, bytes);
+                return file.toString().replace('\\', '/');
+            } catch (Exception e) {
+                logService.write("JAV_META", "演员头像下载异常 actorId=" + actorId + ", attempt=" + attempt + ", url=" + avatarUrl + ", type="
+                        + e.getClass().getSimpleName() + ", msg=" + e.getMessage());
+                sleepQuietly(250L * attempt);
+            }
         }
+        return null;
     }
 
     private String readInfoValue(Map<String, Object> infoData, String name, String fallback) {
@@ -526,9 +542,12 @@ public class JavMetadataServiceImpl {
 
     private String normalizeUrl(String url) {
         if (url == null || url.isBlank()) return null;
-        if (url.startsWith("http://") || url.startsWith("https://")) return url;
-        if (url.startsWith("/")) return baseUrl + url;
-        return baseUrl + "/" + url;
+        String trimmed = url.trim();
+        if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) return trimmed;
+        if (trimmed.startsWith("//")) return "https:" + trimmed;
+        if (trimmed.startsWith("data:")) return null;
+        if (trimmed.startsWith("/")) return baseUrl + trimmed;
+        return baseUrl + "/" + trimmed;
     }
 
     private String resolvePosterExtension(String coverUrl, MediaType contentType) {
@@ -576,6 +595,35 @@ public class JavMetadataServiceImpl {
         } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
         }
+    }
+
+    private String extractAvatarFromActorRow(Map<String, Object> row) {
+        if (row == null || row.isEmpty()) return null;
+
+        String direct = firstNonBlank(
+                asString(row.get("avatar")),
+                asString(row.get("avatarUrl")),
+                asString(row.get("avatar_url")),
+                asString(row.get("photo")),
+                asString(row.get("image")),
+                asString(row.get("img")),
+                asString(row.get("thumb")),
+                asString(row.get("pic")),
+                asString(row.get("url"))
+        );
+        if (direct != null) return direct;
+
+        Object avatarObj = row.get("avatar");
+        if (avatarObj instanceof Map<?, ?> map) {
+            return firstNonBlank(
+                    asString(map.get("url")),
+                    asString(map.get("src")),
+                    asString(map.get("origin")),
+                    asString(map.get("large")),
+                    asString(map.get("thumb"))
+            );
+        }
+        return null;
     }
 
     private String firstNonBlank(String... values) {

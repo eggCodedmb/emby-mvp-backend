@@ -73,7 +73,15 @@ public class StreamController {
         if (actor == null || actor.getAvatarUrl() == null || actor.getAvatarUrl().isBlank()) {
             throw new BizException(4049, "actor avatar not found");
         }
-        Path file = Paths.get(actor.getAvatarUrl()).toAbsolutePath().normalize();
+        if (actor.getAvatarUrl().startsWith("http://") || actor.getAvatarUrl().startsWith("https://")) {
+            throw new BizException(4049, "actor avatar not found");
+        }
+        Path file;
+        try {
+            file = Paths.get(actor.getAvatarUrl()).toAbsolutePath().normalize();
+        } catch (Exception e) {
+            throw new BizException(4049, "actor avatar not found");
+        }
         if (!Files.exists(file)) {
             throw new BizException(4049, "actor avatar not found");
         }

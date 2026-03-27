@@ -5,6 +5,7 @@ import com.emby.mvp.common.ApiResponse;
 import com.emby.mvp.common.BizException;
 import com.emby.mvp.dto.LoginRequest;
 import com.emby.mvp.dto.LoginResponse;
+import com.emby.mvp.dto.RegisterRequest;
 import com.emby.mvp.entity.User;
 import com.emby.mvp.mapper.UserMapper;
 import com.emby.mvp.security.JwtUtil;
@@ -17,6 +18,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.LocalDateTime;
 import java.util.Map;
 
 @RestController
@@ -30,6 +32,29 @@ public class AuthController {
         this.userMapper = userMapper;
         this.passwordEncoder = passwordEncoder;
         this.jwtUtil = jwtUtil;
+    }
+
+    @PostMapping("/register")
+    public ApiResponse<Map<String, Object>> register(@Valid @RequestBody RegisterRequest request) {
+        User exists = userMapper.selectOne(new LambdaQueryWrapper<User>()
+                .eq(User::getUsername, request.getUsername())
+                .last("limit 1"));
+        if (exists != null) {
+            throw new BizException(4001, "用户名已存在");
+        }
+
+        User user = new User();
+        user.setUsername(request.getUsername());
+        user.setPasswordHash(passwordEncoder.encode(request.getPassword()));
+        user.setRole("user");
+        user.setCreatedAt(LocalDateTime.now());
+        userMapper.insert(user);
+
+        return ApiResponse.ok(Map.of(
+                "id", user.getId(),
+                "username", user.getUsername(),
+                "role", user.getRole()
+        ));
     }
 
     @PostMapping("/login")

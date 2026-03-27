@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 @Data
@@ -21,6 +22,9 @@ public class MediaItem {
     private String codec;
     private Integer bitrateKbps;
     private String posterUrl;
+    private String code;
+    private Long actorId;
+    private LocalDate issueDate;
     private String fileHash;
     private Long fileMtimeMs;
     private LocalDateTime createdAt;
