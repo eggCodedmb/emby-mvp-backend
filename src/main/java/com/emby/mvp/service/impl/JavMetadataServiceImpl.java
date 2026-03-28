@@ -40,12 +40,15 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.ThreadLocalRandom;
 
 @Service
 public class JavMetadataServiceImpl {
     private static final Pattern CODE_PATTERN = Pattern.compile("([A-Z]{2,8})[-_\\s]?(\\d{2,6})", Pattern.CASE_INSENSITIVE);
     private static final int REQUEST_RETRY = 2;
     private static final List<String> POSTER_EXTS = List.of(".jpg", ".png", ".webp", ".gif", ".bmp");
+    private static final long METADATA_REQUEST_DELAY_MIN_MS = 5_000L;
+    private static final long METADATA_REQUEST_DELAY_MAX_MS = 10_000L;
 
     private final RestTemplate restTemplate;
     private final MediaItemMapper mediaItemMapper;
@@ -127,7 +130,7 @@ public class JavMetadataServiceImpl {
                 else fail.incrementAndGet();
             } catch (Exception e) {
                 fail.incrementAndGet();
-                logService.write("JAV_META", "逐项扫描异常 mediaId=" + item.getId()
+                logService.write("JAV_META", "闁劙銆嶉幍顐ｅ伎瀵倸鐖?mediaId=" + item.getId()
                         + ", type=" + e.getClass().getSimpleName() + ", msg=" + e.getMessage());
             }
         }
@@ -177,7 +180,7 @@ public class JavMetadataServiceImpl {
                 else fail.incrementAndGet();
             } catch (Exception e) {
                 fail.incrementAndGet();
-                logService.write("JAV_META", "扫描异常 mediaId=" + (item == null ? null : item.getId())
+                logService.write("JAV_META", "閹殿偅寮垮鍌氱埗 mediaId=" + (item == null ? null : item.getId())
                         + ", type=" + e.getClass().getSimpleName() + ", msg=" + e.getMessage());
             }
         }
@@ -202,11 +205,11 @@ public class JavMetadataServiceImpl {
 
         Map<String, Object> infoData = fetchInfoData(code);
         if (infoData == null) {
-            // 降级：第三方元数据源不可用时，至少回填识别码，避免整批扫描全部失败
+            // 闂勫秶楠囬敍姘鳖儑娑撳鏌熼崗鍐╂殶閹诡喗绨稉宥呭讲閻劍妞傞敍宀冨殾鐏忔垵娲栨繅顐ョ槕閸掝偆鐖滈敍宀勪缉閸忓秵鏆ｉ幍瑙勫閹诲繐鍙忛柈銊ャ亼鐠?
             item.setCode(code);
             item.setUpdatedAt(LocalDateTime.now());
             mediaItemMapper.updateById(item);
-            logService.write("JAV_META", "降级写入 code=" + code + ", mediaId=" + item.getId());
+            logService.write("JAV_META", "闂勫秶楠囬崘娆忓弳 code=" + code + ", mediaId=" + item.getId());
             return true;
         }
 
@@ -221,7 +224,7 @@ public class JavMetadataServiceImpl {
             try {
                 item.setIssueDate(LocalDate.parse(issueDate));
             } catch (Exception e) {
-                logService.write("JAV_META", "日期解析失败 mediaId=" + item.getId()
+                logService.write("JAV_META", "閺冦儲婀＄憴锝嗙€芥径杈Е mediaId=" + item.getId()
                         + ", code=" + code + ", rawDate=" + issueDate + ", msg=" + e.getMessage());
             }
         }
@@ -264,9 +267,10 @@ public class JavMetadataServiceImpl {
         for (String url : urls) {
             for (int attempt = 1; attempt <= REQUEST_RETRY; attempt++) {
                 try {
+                    sleepQuietly(randomMetadataDelayMillis());
                     ResponseEntity<Map> resp = restTemplate.exchange(url, HttpMethod.GET, new HttpEntity<>(headers), Map.class);
                     if (!resp.getStatusCode().is2xxSuccessful() || resp.getBody() == null) {
-                        logService.write("JAV_META", "接口非成功响应 code=" + code + ", url=" + url
+                        logService.write("JAV_META", "閹恒儱褰涢棃鐐村灇閸旂喎鎼锋惔?code=" + code + ", url=" + url
                                 + ", attempt=" + attempt + ", status=" + resp.getStatusCode());
                         continue;
                     }
@@ -274,9 +278,9 @@ public class JavMetadataServiceImpl {
                     if (data instanceof Map<?, ?> dataMap) {
                         return (Map<String, Object>) dataMap;
                     }
-                    logService.write("JAV_META", "接口响应缺少 data code=" + code + ", url=" + url + ", attempt=" + attempt);
+                    logService.write("JAV_META", "閹恒儱褰涢崫宥呯安缂傚搫鐨?data code=" + code + ", url=" + url + ", attempt=" + attempt);
                 } catch (Exception e) {
-                    logService.write("JAV_META", "抓取失败 code=" + code + ", url=" + url + ", attempt=" + attempt
+                    logService.write("JAV_META", "閹舵挸褰囨径杈Е code=" + code + ", url=" + url + ", attempt=" + attempt
                             + ", type=" + e.getClass().getSimpleName() + ", msg=" + e.getMessage());
                     sleepQuietly(250L * attempt);
                 }
@@ -321,7 +325,7 @@ public class JavMetadataServiceImpl {
                     actor.setUpdatedAt(LocalDateTime.now());
                     actorMapper.updateById(actor);
                 } else {
-                    logService.write("JAV_META", "演员头像下载失败 actorId=" + actor.getId() + ", name=" + normalizedName + ", avatarUrl=" + avatar);
+                    logService.write("JAV_META", "濠曟柨鎲虫径鏉戝剼娑撳娴囨径杈Е actorId=" + actor.getId() + ", name=" + normalizedName + ", avatarUrl=" + avatar);
                     if (actor.getAvatarUrl() != null
                             && (actor.getAvatarUrl().startsWith("http://") || actor.getAvatarUrl().startsWith("https://"))) {
                         actor.setAvatarUrl(null);
@@ -330,7 +334,7 @@ public class JavMetadataServiceImpl {
                     }
                 }
             } else {
-                logService.write("JAV_META", "演员缺少头像URL actorName=" + normalizedName + ", mediaId=" + mediaId);
+                logService.write("JAV_META", "濠曟柨鎲崇紓鍝勭毌婢舵潙鍎歎RL actorName=" + normalizedName + ", mediaId=" + mediaId);
             }
 
             if (actor.getId() != null && linkedActorIds.add(actor.getId())) {
@@ -388,7 +392,7 @@ public class JavMetadataServiceImpl {
         try {
             ResponseEntity<byte[]> resp = restTemplate.exchange(coverUrl, HttpMethod.GET, HttpEntity.EMPTY, byte[].class);
             if (!resp.getStatusCode().is2xxSuccessful()) {
-                logService.write("JAV_META", "封面下载失败 mediaId=" + mediaId + ", status=" + resp.getStatusCode());
+                logService.write("JAV_META", "鐏忎線娼版稉瀣祰婢惰精瑙?mediaId=" + mediaId + ", status=" + resp.getStatusCode());
                 return false;
             }
             byte[] bytes = resp.getBody();
@@ -401,7 +405,7 @@ public class JavMetadataServiceImpl {
             Files.write(root.resolve(mediaId + ext), bytes);
             return true;
         } catch (Exception e) {
-            logService.write("JAV_META", "封面下载异常 mediaId=" + mediaId + ", type="
+            logService.write("JAV_META", "鐏忎線娼版稉瀣祰瀵倸鐖?mediaId=" + mediaId + ", type="
                     + e.getClass().getSimpleName() + ", msg=" + e.getMessage());
             return false;
         }
@@ -421,12 +425,12 @@ public class JavMetadataServiceImpl {
             try {
                 ResponseEntity<byte[]> resp = restTemplate.exchange(avatarUrl, HttpMethod.GET, new HttpEntity<>(headers), byte[].class);
                 if (!resp.getStatusCode().is2xxSuccessful()) {
-                    logService.write("JAV_META", "演员头像下载失败 actorId=" + actorId + ", attempt=" + attempt + ", status=" + resp.getStatusCode() + ", url=" + avatarUrl);
+                    logService.write("JAV_META", "濠曟柨鎲虫径鏉戝剼娑撳娴囨径杈Е actorId=" + actorId + ", attempt=" + attempt + ", status=" + resp.getStatusCode() + ", url=" + avatarUrl);
                     continue;
                 }
                 byte[] bytes = resp.getBody();
                 if (bytes == null || bytes.length == 0) {
-                    logService.write("JAV_META", "演员头像空内容 actorId=" + actorId + ", attempt=" + attempt + ", url=" + avatarUrl);
+                    logService.write("JAV_META", "濠曟柨鎲虫径鏉戝剼缁屽搫鍞寸€?actorId=" + actorId + ", attempt=" + attempt + ", url=" + avatarUrl);
                     continue;
                 }
 
@@ -438,7 +442,7 @@ public class JavMetadataServiceImpl {
                 Files.write(file, bytes);
                 return file.toString().replace('\\', '/');
             } catch (Exception e) {
-                logService.write("JAV_META", "演员头像下载异常 actorId=" + actorId + ", attempt=" + attempt + ", url=" + avatarUrl + ", type="
+                logService.write("JAV_META", "濠曟柨鎲虫径鏉戝剼娑撳娴囧鍌氱埗 actorId=" + actorId + ", attempt=" + attempt + ", url=" + avatarUrl + ", type="
                         + e.getClass().getSimpleName() + ", msg=" + e.getMessage());
                 sleepQuietly(250L * attempt);
             }
@@ -458,14 +462,14 @@ public class JavMetadataServiceImpl {
     }
 
     private String readCodeValue(Map<String, Object> infoData, String fallback) {
-        String exact = readInfoValue(infoData, "識別碼", null);
+        String exact = readInfoValue(infoData, "\u8BC6\u522B\u7801", null);
         if (exact != null && !exact.isBlank()) return exact;
 
         for (Map<String, Object> row : asMapList(infoData.get("info"))) {
             String name = asString(row.get("name"));
             String content = asString(row.get("content"));
             if (content == null || content.isBlank()) continue;
-            if (name != null && (name.contains("識別") || name.contains("识别") || name.toLowerCase(Locale.ROOT).contains("id"))) {
+            if (name != null && (name.contains("\u8BC6\u522B") || name.contains("\u756A\u53F7") || name.toLowerCase(Locale.ROOT).contains("id"))) {
                 return content.trim();
             }
             String extracted = extractCode(content);
@@ -475,7 +479,7 @@ public class JavMetadataServiceImpl {
     }
 
     private String readIssueDateValue(Map<String, Object> infoData) {
-        String exact = readInfoValue(infoData, "發行日期", null);
+        String exact = readInfoValue(infoData, "\u53D1\u884C\u65E5\u671F", null);
         if (exact != null && !exact.isBlank()) return exact;
 
         Pattern datePattern = Pattern.compile("\\d{4}-\\d{2}-\\d{2}");
@@ -483,7 +487,7 @@ public class JavMetadataServiceImpl {
             String name = asString(row.get("name"));
             String content = asString(row.get("content"));
             if (content == null) continue;
-            if (name != null && (name.contains("發行") || name.contains("发行") || name.contains("日期") || name.toLowerCase(Locale.ROOT).contains("date"))) {
+            if (name != null && (name.contains("\u53D1\u884C") || name.contains("\u4E0A\u6620") || name.contains("\u65E5\u671F") || name.toLowerCase(Locale.ROOT).contains("date"))) {
                 Matcher m = datePattern.matcher(content);
                 if (m.find()) return m.group();
             }
@@ -494,14 +498,14 @@ public class JavMetadataServiceImpl {
     }
 
     private String readCategoryValue(Map<String, Object> infoData) {
-        String exact = readInfoValue(infoData, "類別", null);
+        String exact = readInfoValue(infoData, "\u7C7B\u522B", null);
         if (exact != null && !exact.isBlank()) return exact;
 
         for (Map<String, Object> row : asMapList(infoData.get("info"))) {
             String name = asString(row.get("name"));
             String content = asString(row.get("content"));
             if (content == null || content.isBlank()) continue;
-            if (name != null && (name.contains("類別") || name.contains("类别") || name.contains("分類") || name.contains("分类") || name.toLowerCase(Locale.ROOT).contains("category"))) {
+            if (name != null && (name.contains("\u7C7B\u522B") || name.contains("\u5206\u7C7B") || name.contains("\u6807\u7B7E") || name.toLowerCase(Locale.ROOT).contains("category"))) {
                 return content.trim();
             }
         }
@@ -510,7 +514,7 @@ public class JavMetadataServiceImpl {
 
     private List<String> splitCategories(String text) {
         if (text == null || text.isBlank()) return List.of();
-        String normalized = text.replace('、', ' ').replace(',', ' ').replace('，', ' ').trim();
+        String normalized = text.replace('\u3001', ' ').replace(',', ' ').replace('\uFF0C', ' ').trim();
         List<String> list = new ArrayList<>();
         for (String part : normalized.split("\\s+")) {
             String p = part == null ? "" : part.trim();
@@ -584,7 +588,7 @@ public class JavMetadataServiceImpl {
             try {
                 Files.deleteIfExists(root.resolve(mediaId + ext));
             } catch (Exception e) {
-                logService.write("JAV_META", "清理旧封面失败 mediaId=" + mediaId + ", file=" + mediaId + ext);
+                logService.write("JAV_META", "濞撳懐鎮婇弮褍鐨濋棃銏犮亼鐠?mediaId=" + mediaId + ", file=" + mediaId + ext);
             }
         }
     }
@@ -595,6 +599,10 @@ public class JavMetadataServiceImpl {
         } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
         }
+    }
+
+    private long randomMetadataDelayMillis() {
+        return ThreadLocalRandom.current().nextLong(METADATA_REQUEST_DELAY_MIN_MS, METADATA_REQUEST_DELAY_MAX_MS + 1L);
     }
 
     private String extractAvatarFromActorRow(Map<String, Object> row) {
